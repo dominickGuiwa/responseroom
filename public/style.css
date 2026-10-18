@@ -560,10 +560,14 @@ details.ai-card[open]>summary{margin-bottom:8px}
    The body background propagates to the canvas, so these negative-z layers sit above it and below all content. */
 :root{--wash:#D6E8F3;--wash-2:#E2EFF4}
 body{position:relative}
-body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;background:radial-gradient(900px 560px at 88% -10%,var(--wash) 0%,rgba(225,238,246,0) 64%),radial-gradient(760px 460px at -8% 106%,var(--wash-2) 0%,rgba(232,242,246,0) 62%)}
-body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:url('/backdrop.svg') center/cover no-repeat}
-@media (max-width:600px){body::after{opacity:.7}}
-@media print{body::before,body::after{display:none}}
+/* Two public-domain photographs (docs/CREDITS.md) multiplied into the washes: NASA's Blue Marble, masked to its disc, and a
+   1922 switchboard operator, feathered and desaturated. Both sit behind every page and under all content. */
+.backdrop{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:radial-gradient(900px 560px at 88% -10%,var(--wash) 0%,rgba(225,238,246,0) 64%),radial-gradient(760px 460px at -8% 106%,var(--wash-2) 0%,rgba(232,242,246,0) 62%),var(--paper)}
+.backdrop i{position:absolute;display:block;background-repeat:no-repeat;background-size:cover;background-position:center;mix-blend-mode:multiply}
+.bd-earth{width:880px;height:880px;right:-190px;top:-170px;background-image:url('/backdrop/earth.jpg');opacity:.3;filter:saturate(.7) brightness(1.08);-webkit-mask-image:radial-gradient(circle at center,#000 0 40.5%,transparent 43.5%);mask-image:radial-gradient(circle at center,#000 0 40.5%,transparent 43.5%)}
+.bd-operators{width:760px;height:604px;left:-150px;bottom:-110px;background-image:url('/backdrop/operators.jpg');opacity:.17;filter:grayscale(1) contrast(1.05) brightness(1.1);-webkit-mask-image:radial-gradient(ellipse at center,#000 22%,transparent 68%);mask-image:radial-gradient(ellipse at center,#000 22%,transparent 68%)}
+@media (max-width:1000px){.bd-earth{width:600px;height:600px;right:-220px;top:-150px;opacity:.24}.bd-operators{display:none}}
+@media print{.backdrop{display:none}}
 /* :root paints the paper; the body must stay transparent or it would cover the backdrop layers. */
 body{background:transparent}
 

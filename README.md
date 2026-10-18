@@ -171,6 +171,7 @@ Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CR
 - `docs/SUBMISSION.md` — Devpost and GitHub checklist.
 - `docs/JUDGE-REVIEW.md` — a final self-review against the judging criteria and what was changed because of it.
 - `agents/caller-agent.md` — how the CREAO Caller agent is set up.
+- `docs/CREDITS.md` — the two public-domain photographs behind the interface (NASA’s Blue Marble and a 1922 switchboard operator).
 
 ## License
 
