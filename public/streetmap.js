@@ -11,7 +11,7 @@ export const W = 1000, H = 700;
 const STOP = new Set(['the', 'a', 'an', 'entrance', 'door', 'side', 'unit', 'floor', 'lot', 'parking', 'lane', 'lanes', 'of', 'at', 'by', 'near', 'to', 'and', 'street', 'road', 'avenue', 'center']);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const lower = s => String(s ?? '').toLowerCase().trim();
-const pattern = k => new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}($|[^a-z0-9])`, 'i');
+const pattern = k => new RegExp(`(^|[^a-z0-9])${String(k).replace(/-/g, ' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]+')}($|[^a-z0-9])`, 'i');
 const mentionsAny = (text, keys) => (keys || []).some(k => k && pattern(k).test(String(text ?? '')));
 const mmss = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);

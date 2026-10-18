@@ -67,7 +67,8 @@ export function buildGenerated({ raw, imported, run, rotation = [] }) {
  // Keywords: the labelled phrase first ("berth 9"), then distinctive words; bare numbers only when nothing else survives,
  // so a stray digit elsewhere in a message cannot count as the corrected detail.
  const phrase = (statement, text) => { const p = cut(afterColon(statement)).toLowerCase(); return p.length >= 2 && p.length <= 40 && mentions(text, p) ? [p] : [] };
- const pickKeywords = (tokens, text, statement) => { const present = tokens.filter(w => mentions(text, w)); const words = present.filter(w => !/^\d+$/.test(w)); const list = [...new Set([...phrase(statement, text), ...words])].slice(0, 3); return list.length ? list : present.slice(0, 2) };
+ const numbered = (statement, text, nums) => { const parts = words(cut(afterColon(statement))); const out = []; for (const n of nums) { const i = parts.indexOf(n); if (i < 0) continue; for (const c of [i > 0 ? `${parts[i - 1]} ${n}` : null, i < parts.length - 1 ? `${n} ${parts[i + 1]}` : null]) if (c && mentions(text, c)) { out.push(c); break } } return out };
+ const pickKeywords = (tokens, text, statement) => { const present = tokens.filter(w => mentions(text, w)); const nums = present.filter(w => /^\d+$/.test(w)), rest = present.filter(w => !/^\d+$/.test(w)); const list = [...new Set([...phrase(statement, text), ...numbered(statement, text, nums), ...rest])].slice(0, 3); return list.length ? list : nums.slice(0, 2) };
  const corrected = pickKeywords(pair.corrected, f.correctionMessage, pair.corrStatement);
  const original = pickKeywords(pair.original, f.initialMessage, pair.origStatement);
  if (!corrected.length) throw Error('The caller’s correction does not say the corrected detail named in the hidden truth');

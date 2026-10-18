@@ -3,7 +3,7 @@
 // The outcome is shown to the trainee only after a call has ended (never during it), with its rule spelled out.
 const STOP = new Set(['the', 'a', 'an', 'entrance', 'door', 'side', 'unit', 'floor', 'lot', 'parking', 'lane', 'lanes', 'of', 'at', 'by', 'near', 'to']);
 const lower = s => String(s ?? '').toLowerCase().trim();
-const pattern = k => new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}($|[^a-z0-9])`, 'i');
+const pattern = k => new RegExp(`(^|[^a-z0-9])${String(k).replace(/-/g, ' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]+')}($|[^a-z0-9])`, 'i');
 export const mentions = (text, keyword) => !!keyword && pattern(keyword).test(String(text ?? ''));
 export const mentionsAny = (text, keywords) => (keywords || []).some(k => mentions(text, k));
 
