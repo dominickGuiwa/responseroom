@@ -11,7 +11,7 @@
   "engines": {
     "node": ">=24"
   },
-  "description": "ResponseRoom: a fictional, text-based dispatcher training simulator with instructor-approved scenarios and human-reviewed debriefs. DEMO ONLY.",
+  "description": "ResponseRoom: a fictional, voice-based 911-dispatcher training simulator. CREAO agents play the people on the line, ElevenLabs gives them voices, a human instructor keeps the verdict. DEMO ONLY.",
   "repository": "github:dominickGuiwa/responseroom",
   "license": "MIT"
 }
