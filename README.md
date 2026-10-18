@@ -2,7 +2,7 @@
 
 **A fictional, voice-based 911-dispatcher training simulator.** A trainee takes a call they have never seen: the caller, Fire and EMS talk on separate channels, the trainee answers by push-to-talk and keeps the incident record by hand, and an aerial map shows units going exactly where they were sent. Three CREAO agents play the people on the line (writing new situations, answering as the caller, drafting feedback); ElevenLabs gives them voices. Every agent output is validated and has a scripted fallback, nothing is graded by AI, and feedback reaches a trainee only when a human instructor releases it.
 
-Built entirely during the LA Hacks AI Hackathon 2026 at UCLA (17–18 October 2026; every commit is from that weekend) for the Applied AI track and the Creao AI, Workday *Build the Future of Work with AI*, Paper *Best Designed Hack*, Sentry and ElevenLabs prize categories. Pitch, demo script and submission notes are in `docs/`.
+Built entirely during the LA Hacks AI Hackathon 2026 at UCLA (17–18 October 2026; every commit is from that weekend) for the Applied AI track and the Creao AI, Workday *Build the Future of Work with AI*, Paper *Best Designed Hack*, Sentry and ElevenLabs prize categories.
 
 > **DEMO ONLY.** Not approved for operational training. No real procedures, addresses or people are included, and nothing here is emergency guidance.
 
@@ -164,12 +164,8 @@ Local single-machine demo; Fire and EMS are scripted readbacks (the caller is co
 
 Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, ElevenLabs (text to speech and Scribe transcription), Sentry, browser speech synthesis as the fallback. Development was assisted by AI coding tools.
 
-## Pitch, demo and submission
+## More documentation
 
-- `docs/PITCH.md` — the 2–3 minute pitch, with answers for likely judge questions.
-- `docs/DEMO-SCRIPT.md` — a timed 3-minute demo with a pre-flight checklist and what to do when something fails on stage.
-- `docs/SUBMISSION.md` — Devpost and GitHub checklist.
-- `docs/JUDGE-REVIEW.md` — a final self-review against the judging criteria and what was changed because of it.
 - `agents/caller-agent.md` — how the CREAO Caller agent is set up.
 - `docs/CREDITS.md` — the two public-domain photographs behind the interface (NASA’s Blue Marble and a 1922 switchboard operator).
 

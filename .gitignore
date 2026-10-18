@@ -8,3 +8,5 @@
 HANDOFF.md
 node_modules/
 .DS_Store
+# Private planning notes (pitch, demo script, submission checklist, self-review): never commit
+private/
