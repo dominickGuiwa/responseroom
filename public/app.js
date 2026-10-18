@@ -1,3 +1,4 @@
+import {finished,goalRates,summarize,focusAreas,tasks,outcomeBadge,goalBars,columnChart,outcomeStrip,seconds} from '/insights.js';
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time=n=>`${String(Math.floor(n/60000)).padStart(2,'0')}:${String(Math.floor(n/1000)%60).padStart(2,'0')}`;
@@ -16,6 +17,9 @@ function setAuth(next){auth=next;if(next){tabStore.set('rr-session',next);store.
 // One-time migration of drafts saved under the old global keys to the session they belonged to.
 try{if(auth&&localStorage.getItem('rr-draft')!==null&&localStorage.getItem(draftKey('draft'))===null){store.set(draftKey('draft'),localStorage.getItem('rr-draft'));const r=localStorage.getItem('rr-record-drafts');if(r)localStorage.setItem(draftKey('record-drafts'),r);const t=localStorage.getItem('rr-to');if(t)store.set(draftKey('to'),t)}for(const k of ['rr-draft','rr-record-drafts','rr-to'])localStorage.removeItem(k)}catch{}
 loadDrafts();
+let showProgress=false,needName=false,history=store.get('rr-history',[]);
+// Calls this device has run for each trainee name (id + token), so trainees can see their own progress over time.
+const myRuns=()=>history.filter(h=>h.name===traineeName).slice(-40);
 let session=null,connection='',adminKey='',info=null,busy=false,incomingUntil=0,lastSaved=null;
 // A trainee "session" is a run of situations in this tab: the name, each situation handled, and the situations seen recently on this device (so the next one is different).
 let traineeName=store.get('rr-trainee-name',''),shift=tabStore.get('rr-shift')||[],recent=store.get('rr-recent',[]),showSummary=!!tabStore.get('rr-summary');
@@ -90,40 +94,52 @@ let demoTimer=null;
 function startDemoLoop(){clearInterval(demoTimer);const steps=[['Caller','You'],['You','Fire'],['Fire','You'],['You','EMS'],['EMS','You']];let i=0;demoTimer=setInterval(()=>{const svg=document.querySelector('.agent-map[data-demo]');if(!svg)return clearInterval(demoTimer);pulse(svg,...steps[i++%steps.length])},1400)}
 
 // ---------- Trainee ----------
+const goals=()=>info?.goals||[];
+const firstName=n=>String(n||'').split(' ')[0];
+function goalsHtml(){return goals().length?`<section class="card goals-card" aria-labelledby="goals-title"><h2 id="goals-title">Your goals on every call</h2><ul class="goal-list">${goals().map(g=>`<li><strong>${esc(g.label)}</strong><span>${esc(g.target)}</span></li>`).join('')}</ul><p class="note">You see how you did after each call ends, never during it.</p></section>`:''}
 function welcome(){
+ const hasProgress=!!traineeName&&myRuns().length>0;
  app.innerHTML=header('<span class="chip">Training demo</span>')+`<main class="welcome">
  <section class="card welcome-card">
   <p class="kicker">Dispatcher practice</p>
   <h1>Take the call. Keep the record. Send help.</h1>
   <p class="lead">Every run is a new situation. Talk with the caller, message Fire and EMS when you decide to, and keep your own incident record.</p>
-  <form id="start-form"><label for="trainee-name">Your name</label><input id="trainee-name" autocomplete="name" maxlength="60" required value="${esc(traineeName)}" placeholder="First and last name"><button class="primary big">Start a situation</button></form>
+  <form id="start-form"><label for="trainee-name">Your name</label><p class="field-help${needName?' needed':''}" id="name-help">${needName?'Please add your name first. ':''}Your instructor sees this name next to your calls.</p><input id="trainee-name" autocomplete="name" maxlength="60" required aria-describedby="name-help" value="${esc(traineeName)}" placeholder="First and last name"><button class="primary big">Start a situation</button></form>
+  ${hasProgress?`<p class="progress-link"><button class="link-btn" data-act="progress">See your progress, ${esc(firstName(traineeName))}</button></p>`:''}
   <p class="fineprint">Fictional training only. Nothing here is real emergency guidance.</p>
  </section>
+ <div class="welcome-side">${goalsHtml()}
  <section class="how" aria-labelledby="how-title">
   <h2 id="how-title">How it works</h2>
   <div class="card how-map">${agentMap({demo:true})}</div>
-  <ol class="steps"><li>You get a <strong>new situation</strong> each time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the incident record and message the caller, Fire or EMS.</li><li>The <strong>Fire and EMS agents</strong> read back exactly what you sent them.</li><li>Your <strong>instructor</strong> reviews what happened and sends you feedback.</li></ol>
- </section></main>
+  <ol class="steps"><li>You get a <strong>new situation</strong> each time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the incident record and message the caller, Fire or EMS.</li><li>The <strong>Fire and EMS agents</strong> act on exactly what you sent them.</li><li>When the call ends you see the <strong>outcome</strong>, and your instructor can add feedback.</li></ol>
+ </section></div></main>
  <footer class="sitefoot"><a href="/instructor">Instructor dashboard</a></footer>`;
- document.querySelector('#start-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#trainee-name').value.trim();if(!name||busy)return;traineeName=name;store.set('rr-trainee-name',name);shift=[];tabStore.set('rr-shift',shift);busy=true;try{await startSituation()}catch(e){error(e)}finally{busy=false}};
+ document.querySelector('#start-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#trainee-name').value.trim();if(!name||busy)return;traineeName=name;store.set('rr-trainee-name',name);needName=false;shift=[];tabStore.set('rr-shift',shift);busy=true;try{await startSituation()}catch(e){error(e)}finally{busy=false}};
+ if(!traineeName||needName)document.querySelector('#trainee-name').focus();
  startDemoLoop();
 }
 async function startSituation(){
  const created=await api('sessions',{name:traineeName,avoid:recent});
  recent=[...recent.filter(v=>v!==created.version),created.version].slice(-6);store.set('rr-recent',recent);
  shift=[...shift,{id:created.id,token:created.token,title:created.title}];tabStore.set('rr-shift',shift);
- showSummary=false;tabStore.del('rr-summary');lastSaved=null;
+ history=[...history,{id:created.id,token:created.token,name:traineeName,title:created.title,version:created.version,at:Date.now()}].slice(-80);store.set('rr-history',history);
+ showSummary=false;showProgress=false;tabStore.del('rr-summary');lastSaved=null;
  session=created;setAuth({id:created.id,token:created.token});incomingUntil=Date.now()+4500;render();
  document.querySelector('#draft')?.focus();
 }
-async function nextSituation(){if(busy)return;busy=true;try{if(session?.status!=='ended')await action('end',{reason:'next'});clearDrafts();await startSituation()}catch(e){error(e)}finally{busy=false}}
+// Every run is tied to a name. Without one (e.g. an old saved run), ask for it before the next situation.
+async function askForName(){if(session&&session.status!=='ended')await action('end');setAuth(null);session=null;showSummary=false;showProgress=false;needName=true;render()}
+async function nextSituation(){if(busy)return;busy=true;try{if(!traineeName)return await askForName();if(session?.status!=='ended')await action('end',{reason:'next'});clearDrafts();await startSituation()}catch(e){error(e)}finally{busy=false}}
+async function finishCall(){if(busy)return;busy=true;try{if(session&&session.status!=='ended')await action('end');render();scrollTo(0,0)}catch(e){error(e)}finally{busy=false}}
 async function endSession(){if(busy)return;busy=true;try{if(session&&session.status!=='ended')await action('end');clearDrafts();setAuth(null);session=null;showSummary=true;tabStore.set('rr-summary',true);render()}catch(e){error(e)}finally{busy=false}}
-async function restartSession(){if(busy)return;busy=true;shift=[];tabStore.set('rr-shift',shift);try{await startSituation()}catch(e){error(e)}finally{busy=false}}
-function changeName(){traineeName='';store.del('rr-trainee-name');shift=[];tabStore.set('rr-shift',shift);showSummary=false;tabStore.del('rr-summary');setAuth(null);session=null;render()}
+async function restartSession(){if(busy)return;busy=true;try{if(!traineeName)return await askForName();shift=[];tabStore.set('rr-shift',shift);await startSituation()}catch(e){error(e)}finally{busy=false}}
+function changeName(){traineeName='';store.del('rr-trainee-name');shift=[];tabStore.set('rr-shift',shift);showSummary=false;showProgress=false;tabStore.del('rr-summary');setAuth(null);session=null;render()}
 function render(){
  if(session?.status!=='active'&&speechAvailable)window.speechSynthesis.cancel();
  if(isInstructor)return renderInstructor();
  if(showSummary)return summaryScreen();
+ if(showProgress)return progressScreen(false);
  if(!session)return welcome();
  if(session.status==='ended')return ended();
  consoleScreen();
@@ -131,12 +147,22 @@ function render(){
 const timerText=()=>`${time(session.elapsed)}${session.endAt?` <span class="limit">/ ${time(session.endAt)}</span>`:''}`;
 function updateTimer(){const t=document.querySelector('#timer');if(t)t.innerHTML=timerText()}
 function recordStatus(){if(FIELDS.some(([k])=>recordDrafts[k]!==undefined&&recordDrafts[k]!==session.record[k]))return 'Not saved yet';return lastSaved?.id===session.id?`Saved at ${time(lastSaved.at)}`:''}
-function endedCard(){const reason=session.events.findLast(e=>e.kind==='ended')?.data.reason;const text={time_limit:'The time limit was reached.',instructor:'Your instructor ended this call.'}[reason]||'You ended this call.';return `<div class="ended-card"><section class="card" role="status"><div><h2>This call has ended</h2><p class="muted">${text}</p></div><div class="actions"><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="next">New situation</button></div></section></div>`}
+// After a call ends: the outcome (judged on what was actually sent and recorded) and this call's goals.
+function endedCard(){
+ const reason=session.events.findLast(e=>e.kind==='ended')?.data.reason;
+ const why={time_limit:'The time limit was reached',instructor:'Your instructor ended this call',next:'You moved on'}[reason]||'You finished this call';
+ const o=session.outcome,p=session.performance;
+ const goalRows=goalChecks(p);
+ return `<div class="ended-card"><section class="card outcome-card" role="status">
+  <div class="outcome-main"><p class="kicker">${esc(why)}</p>${o?outcomeBadge(o.result):''}<h2>${esc(o?.headline||'This call has ended.')}</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>
+  ${goalRows?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${goalRows}</ul></div>`:''}
+  <div class="actions outcome-actions"><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="next">New situation</button></div></section></div>`;
+}
 function consoleScreen(){
  lastMessages='';
  const isEnded=session.status==='ended',paused=session.status==='paused',locked=isEnded||paused;
  const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
- const right=isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`;
+ const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
  const center=`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer" id="timer">${timerText()}</span></div>`;
  app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+(isEnded?endedCard():'')+`<main class="console">
  <section class="card convo" aria-label="Conversation">
@@ -178,7 +204,7 @@ async function saveRecord(){
  if(busy)return;busy=true;const button=document.querySelector('#save-record');button.disabled=true;
  try{for(const [field,value] of changes){if(!await action('record',{field,value}))return;if(recordDrafts[field]===value)delete recordDrafts[field]}store.set(draftKey('record-drafts'),recordDrafts);lastSaved={id:session.id,at:session.elapsed};document.querySelector('#record-status').textContent=recordStatus()}catch(e){error(e)}finally{busy=false;const b=document.querySelector('#save-record');if(b)b.disabled=false}
 }
-function paintNextBar(){const bar=document.querySelector('#nextbar');if(!bar)return;const show=session.status!=='ended'&&session.events.some(e=>e.kind==='message'&&e.data.from==='Dispatcher');const html=show?'<span>Whenever you’re ready</span><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="next">New situation</button>':'';if(bar.innerHTML!==html)bar.innerHTML=html}
+function paintNextBar(){const bar=document.querySelector('#nextbar');if(!bar)return;const show=session.status!=='ended'&&session.events.some(e=>e.kind==='message'&&e.data.from==='Dispatcher');const html=show?'<span>Whenever you’re ready</span><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="finish">Finish call</button>':'';if(bar.innerHTML!==html)bar.innerHTML=html}
 // Screen readers hear only newly arrived external messages (neutral content, same as on screen), not the whole list on every poll.
 let announceCursor={id:null,seq:0};
 function announceNew(){const latest=session.events.at(-1)?.seq||0;if(announceCursor.id!==session.id){announceCursor={id:session.id,seq:latest};return}const fresh=session.events.filter(e=>e.seq>announceCursor.seq&&['message','ack'].includes(e.kind)&&['Caller','Fire','EMS'].includes(e.data.from));announceCursor.seq=latest;const el=document.querySelector('#announce');if(el&&fresh.length)el.textContent=fresh.map(e=>`${e.data.from}: ${e.data.text}`).join('. ')}
@@ -200,16 +226,35 @@ async function action(action,data={}){
  session=next;paintMessages();return true;
 }
 function ended(){consoleScreen()}
-async function summaryScreen(){
- const first=traineeName.split(' ')[0];
- app.innerHTML=header('<span class="chip">Training demo</span>')+`<main class="narrow"><p class="kicker">Session complete</p><h1>Thanks${first?', '+esc(first):''}.</h1><p class="lead">You worked through ${shift.length} situation${shift.length===1?'':'s'}. Your instructor will review what happened, and their feedback will show up here.</p>
- <ol class="shift-list" id="shift-list">${shift.map(s=>`<li data-id="${esc(s.id)}"><strong>${esc(s.title||'Situation')}</strong><p class="muted">Loading…</p></li>`).join('')}</ol>
- <div class="actions"><button class="primary big" data-act="restart">Start a new session</button>${first?`<button class="secondary" data-act="change-name">I’m not ${esc(first)}</button>`:''}</div></main>`;
- for(const s of shift){try{const v=await api('sessions/'+s.id,null,s.token);const li=document.querySelector(`#shift-list li[data-id="${s.id}"]`);if(!li)continue;const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;li.innerHTML=`<strong>${esc(v.title||'Situation')}</strong><p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Feedback: waiting for your instructor.</p>'}`}catch{}}
+async function summaryScreen(){return progressScreen(true)}
+const tile=(num,label)=>`<div class="stat"><span class="num">${num}</span><span class="lbl">${label}</span></div>`;
+function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
+// Progress across every call this device has run under this name: focus areas, goal rates and tasks.
+function progressHtml(runs){
+ const done=finished(runs);
+ if(!done.length)return '<p class="muted">Finish a call to start tracking your progress.</p>';
+ const s=summarize(done),f=focusAreas(done,goals()),t=tasks(done);
+ return `<h2 class="section-title">Your progress</h2><p class="note">From ${s.calls} finished call${s.calls===1?'':'s'} on this device. These are automatic checks of what you sent and recorded.</p>
+ <div class="stats">${tile(s.calls,'calls finished')}${tile(s.successes,'successes')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}</div>
+ <div class="progress-grid">
+  <section class="card"><h2>Practice next</h2>${f.focus.length?`<ul class="focus-list">${f.focus.map(x=>`<li><strong>${esc(x.label)}</strong><p>${esc(x.text)}</p></li>`).join('')}</ul>`:`<p class="muted">${esc(f.note)}</p>`}${f.strengths.length?`<h3 class="sub">Going well</h3><ul class="strength-list">${f.strengths.map(x=>`<li><span class="glyph" aria-hidden="true">✓</span><span><strong>${esc(x.label)}</strong> <span class="muted">${esc(x.text)}</span></span></li>`).join('')}</ul>`:''}</section>
+  <section class="card"><h2>Your goals</h2>${goalBars(goalRates(done,goals()))}</section>
+  <section class="card"><h2>Tasks</h2><ul class="task-list">${t.map(x=>`<li class="${x.done?'done':''}"><span class="glyph" aria-hidden="true">${x.done?'✓':'○'}</span><span>${esc(x.label)}</span><span class="muted">${x.have} of ${x.need}</span></li>`).join('')}</ul></section>
+ </div>`;
+}
+async function progressScreen(sessionDone){
+ const name=firstName(traineeName);
+ app.innerHTML=header('<span class="chip">Training demo</span>')+`<main class="narrow wide">
+ ${sessionDone?`<p class="kicker">Session complete</p><h1>Thanks${name?', '+esc(name):''}.</h1><p class="lead">You worked through ${shift.length} situation${shift.length===1?'':'s'}. Here’s how each call went. Your instructor may add feedback too.</p><ol class="shift-list" id="shift-list">${shift.map(s=>`<li data-id="${esc(s.id)}"><strong>${esc(s.title||'Situation')}</strong><p class="muted">Loading…</p></li>`).join('')}</ol>`:`<p class="kicker">Your progress</p><h1>${esc(traineeName)}</h1>`}
+ <section id="progress" aria-live="polite"><p class="muted">Loading your progress…</p></section>
+ <div class="actions">${sessionDone?'<button class="primary big" data-act="restart">Start a new session</button>':'<button class="primary big" data-act="restart">Start a situation</button><button class="secondary" data-act="home">Back</button>'}${name?`<button class="secondary" data-act="change-name">I’m not ${esc(name)}</button>`:''}</div></main>`;
+ const refs=[...myRuns(),...shift.filter(s=>!history.some(h=>h.id===s.id))],runs=[];
+ for(const ref of refs){try{const v=await api('sessions/'+ref.id,null,ref.token);runs.push(v);const li=document.querySelector(`#shift-list li[data-id="${ref.id}"]`);if(li)li.innerHTML=shiftItem(v)}catch{}}
+ const el=document.querySelector('#progress');if(el)el.innerHTML=progressHtml(runs);
 }
 
 // ---------- Instructor ----------
-let inst={view:'runs',runs:[],filter:'',runId:null,run:null,scrub:null,situations:[],libraryOpen:false};
+let inst={view:'runs',runs:[],filter:'',runId:null,run:null,scrub:null,situations:[],libraryOpen:false,trainee:null};
 let scenarioList=[],creaoState={connected:false,generations:[]},importRun=null,revisedFrom=null;
 const when=ms=>ms?new Date(ms).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
 const END_REASON={time_limit:'Time limit reached',instructor:'Ended by an instructor',next:'Moved on to a new situation',trainee:'Ended by the trainee'};
@@ -218,7 +263,7 @@ function instHeader(){return header('<button class="ghost" id="lock">Lock</butto
 function bindInstHeader(){document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{inst.view=b.dataset.view;inst.run=null;renderInstructor()});document.querySelector('#lock').onclick=()=>{adminKey='';tabStore.del('rr-admin');inst.view='runs';inst.run=null;renderInstructor()}}
 async function renderInstructor(){
  if(!adminKey)return instLogin();
- try{if(inst.view==='run'&&inst.run)return runScreen();if(inst.view==='library')return await libraryScreen();inst.view='runs';await runsScreen()}
+ try{if(inst.view==='run'&&inst.run)return runScreen();if(inst.view==='trainee'&&inst.trainee)return traineeScreen();if(inst.view==='library')return await libraryScreen();inst.view='runs';await runsScreen()}
  catch(e){if(e.status===403){adminKey='';tabStore.del('rr-admin');return instLogin()}error(e)}
 }
 function instLogin(){
@@ -226,28 +271,57 @@ function instLogin(){
  document.querySelector('#login').onsubmit=async e=>{e.preventDefault();const key=document.querySelector('#admin-key').value.trim();try{await api('sessions',null,key);adminKey=key;tabStore.set('rr-admin',key);inst.view='runs';renderInstructor()}catch(e){error(e.status===403?'That key didn’t work. Check the .instructor-key file and try again.':e)}};
  document.querySelector('#admin-key').focus();
 }
-const bar=pct=>`<svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="8" rx="4"/><rect class="fill" width="${pct??0}" height="8" rx="4"/></svg>`;
-const mark=(ok,live)=>live?'<span class="mark no" aria-label="Still running">…</span>':ok?'<span class="mark" aria-label="Observed">✓</span>':'<span class="mark no" aria-label="Not observed">–</span>';
+// Goal results for one call, shared by the trainee's outcome card and the instructor's run view.
+function goalChecks(p){if(!p)return '';const extra=g=>g.id==='fastDispatch'&&p.metrics.firstDispatchMs!=null?` · ${seconds(p.metrics.firstDispatchMs)}`:g.id==='quickRelay'&&p.metrics.relayMs!=null?` · ${seconds(p.metrics.relayMs)}`:'';return goals().map(g=>{const v=p.goals[g.id];return `<li><span class="glyph ${v===true?'':v===false?'no':'info'}" aria-hidden="true">${v===true?'✓':v===false?'–':'·'}</span><span><strong>${esc(g.label)}</strong> <span class="muted">${v===true?'Met':v===false?'Not met':'Not counted on this call'}${extra(g)}</span></span></li>`}).join('')}
+const goalsMetText=r=>{const g=r.performance?.goals;if(!g)return '—';const vals=Object.values(g).filter(v=>v!==null);return vals.length?`${vals.filter(Boolean).length} of ${vals.length}`:'—'};
+const outcomeCell=r=>r.status!=='ended'?`<span class="status-chip live">${r.status==='paused'?'Paused':'Live'}</span>`:r.outcome?outcomeBadge(r.outcome.result):'—';
+const feedbackChip=r=>r.released?'<span class="status-chip">Released</span>':r.reviews?'<span class="status-chip">Draft</span>':r.status==='ended'?'<span class="status-chip">To review</span>':'';
 async function runsScreen(fetched){
  inst.runs=fetched||await api('sessions',null,adminKey);
  const names=[...new Set(inst.runs.map(nameOf))].sort();
  if(inst.filter&&!names.includes(inst.filter))inst.filter='';
- const runs=inst.runs.filter(r=>!inst.filter||nameOf(r)===inst.filter),done=runs.filter(r=>r.status==='ended');
- const share=f=>done.length?Math.round(100*done.filter(f).length/done.length):null;
- const firsts=done.map(r=>r.observations.firstUnitMessageAt).filter(x=>x!==null).sort((a,b)=>a-b);
- const median=firsts.length?firsts[Math.floor((firsts.length-1)/2)]:null;
- const stat=(num,label,pct)=>`<div class="stat"><span class="num">${num}</span><span class="lbl">${label}</span>${pct===undefined?'':bar(pct)}</div>`;
- const pctStat=(f,label)=>{const p=share(f);return stat(p===null?'—':p+'%',label,p)};
- const feedback=r=>r.released?'<span class="status-chip">Released</span>':r.reviews?'<span class="status-chip">Draft</span>':r.status==='ended'?'<span class="status-chip">To review</span>':'';
- const status=r=>r.status==='ended'?`<span class="status-chip">${esc(END_REASON[r.observations.ended?.reason]||'Ended')}</span>`:`<span class="status-chip live">${r.status==='paused'?'Paused':'Live'}</span>`;
+ const runs=inst.runs.filter(r=>!inst.filter||nameOf(r)===inst.filter),s=summarize(runs);
+ const people=names.filter(n=>!inst.filter||n===inst.filter).map(n=>{const mine=inst.runs.filter(r=>nameOf(r)===n),sm=summarize(mine),f=focusAreas(mine,goals());return {name:n,live:mine.some(r=>r.status!=='ended'),...sm,focus:f.focus[0]?.label||(sm.calls>=2?'On track':'Needs more calls')}});
  app.innerHTML=instHeader()+`<main class="dash">
- <div class="dash-head"><div><h1>Runs</h1><p class="lead">Every situation a trainee works through, newest first. Open one to see exactly what happened.</p></div>
+ <div class="dash-head"><div><h1>Runs</h1><p class="lead">Every situation a trainee works through. Open a trainee for their progress graphs, or a run to see exactly what happened.</p></div>
   <div class="filter"><label for="trainee-filter">Show</label><select id="trainee-filter"><option value="">All trainees</option>${names.map(n=>`<option ${n===inst.filter?'selected':''}>${esc(n)}</option>`).join('')}</select></div></div>
- <div class="stat-groups"><section class="stat-group" aria-labelledby="activity-h"><h2 id="activity-h" class="kicker">Activity</h2><div class="stats">${stat(runs.length,runs.length===1?'run':'runs')}${inst.filter?'':stat(names.length,names.length===1?'trainee':'trainees')}${stat(runs.filter(r=>r.status!=='ended').length,'running now')}${stat(median===null?'—':time(median),'typical time to first Fire or EMS message')}</div></section><section class="stat-group" aria-labelledby="correction-h"><h2 id="correction-h" class="kicker">Handling the caller’s correction</h2><div class="stats">${pctStat(r=>r.observations.recordHasCorrected,'put it in their record')}${pctStat(r=>r.observations.units.Fire.correctedAt!==null,'told Fire')}${pctStat(r=>r.observations.units.EMS.correctedAt!==null,'told EMS')}</div></section></div>
- <p class="note">Percentages cover finished runs. They come from automatic keyword checks of each run’s log, to help you spot moments worth reviewing. They are not grades.</p>
- <section class="card">${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Started</th><th>Length</th><th>Status</th><th>Corrected detail in record</th><th>Told Fire</th><th>Told EMS</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>{const live=r.status!=='ended',o=r.observations;return `<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${status(r)}</td><td>${mark(o.recordHasCorrected,live)}</td><td>${mark(o.units.Fire.correctedAt!==null,live)}</td><td>${mark(o.units.EMS.correctedAt!==null,live)}</td><td>${feedback(r)}</td></tr>`}).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
+ <section class="stats" aria-label="Summary">${tile(runs.length,runs.length===1?'run':'runs')}${inst.filter?'':tile(names.length,names.length===1?'trainee':'trainees')}${tile(runs.filter(r=>r.status!=='ended').length,'running now')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}</section>
+ <div class="dash-grid">
+  <section class="card"><h2>Trainees</h2><p class="card-sub">Open a trainee for graphs and what to practice next.</p>${people.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Calls</th><th>Success rate</th><th>Practice next</th></tr></thead><tbody>${people.map(t=>`<tr data-trainee="${esc(t.name)}"><td><button class="link-btn" data-trainee-open="${esc(t.name)}">${esc(t.name)}</button>${t.live?' <span class="status-chip live">Live</span>':''}</td><td>${t.calls}</td><td>${t.successRate==null?'—':t.successRate+'%'}</td><td>${esc(t.focus)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No trainees yet.</p>'}</section>
+  <section class="card"><h2>Goals${inst.filter?` for ${esc(inst.filter)}`:' across all trainees'}</h2>${goalBars(goalRates(runs,goals()))}</section>
+ </div>
+ <p class="note">Outcomes, goals and focus areas come from automatic checks of what each trainee sent and recorded. Use them to decide what to review, and confirm against the run before giving feedback.</p>
+ <section class="card"><h2>All runs</h2>${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Started</th><th>Length</th><th>Outcome</th><th>Goals met</th><th>How it ended</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>`<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${outcomeCell(r)}</td><td>${goalsMetText(r)}</td><td>${r.status==='ended'?esc(END_REASON[r.observations.ended?.reason]||'Ended'):''}</td><td>${feedbackChip(r)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
  bindInstHeader();
  document.querySelector('#trainee-filter').onchange=e=>{inst.filter=e.target.value;runsScreen().catch(error)};
+ document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
+ document.querySelectorAll('tr[data-trainee]').forEach(tr=>tr.onclick=()=>openTrainee(tr.dataset.trainee));
+}
+// One trainee's progress: graphs over their finished calls, goal rates, and focus areas with the evidence behind them.
+function openTrainee(name){inst.view='trainee';inst.trainee=name;traineeScreen();scrollTo(0,0)}
+function traineeScreen(){
+ const name=inst.trainee,mine=inst.runs.filter(r=>nameOf(r)===name),done=finished(mine),s=summarize(mine),f=focusAreas(mine,goals());
+ const recent=done.slice(-20),offset=done.length-recent.length,relayRuns=recent.filter(r=>r.performance.metrics.correctionHeard);
+ const label=r=>r.outcome.result==='success'?'Success':r.outcome.result==='failure'?'Failure':'No outcome';
+ const firstChart=columnChart({points:recent.map((r,i)=>({value:r.performance.metrics.firstDispatchMs,title:`Call ${offset+i+1}, ${r.title}`})),goalMs:30000,label:`Seconds to first Fire or EMS message in each of ${name}’s last ${recent.length} calls`,emptyText:'no message to Fire or EMS'});
+ const relayChart=columnChart({points:relayRuns.map(r=>({value:r.performance.metrics.relayMs,title:`Call ${offset+recent.indexOf(r)+1}, ${r.title}`})),goalMs:45000,label:`Seconds to relay the caller’s change to every unit, ${name}’s recent calls`,emptyText:'the change never reached every unit'});
+ const cell=v=>v===true?'<span class="mark" aria-label="Met">✓</span>':v===false?'<span class="mark no" aria-label="Not met">–</span>':'<span class="muted">n/a</span>';
+ app.innerHTML=instHeader()+`<main class="dash">
+ <button class="back" id="back-runs">← All runs</button>
+ <div class="run-head"><div><p class="kicker">Trainee</p><h1>${esc(name)}</h1><p class="lead">${s.calls} finished call${s.calls===1?'':'s'}${mine.some(r=>r.status!=='ended')?', and one running now':''}.</p></div></div>
+ <section class="stats" aria-label="Summary">${tile(s.calls,'calls finished')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}${tile(seconds(s.medianRelay),'typical time to relay a change')}</section>
+ <div class="dash-grid">
+  <section class="card"><h2>Practice next</h2>${f.focus.length?`<ul class="focus-list">${f.focus.map(x=>`<li><strong>${esc(x.label)}</strong><p>${esc(x.text)}</p></li>`).join('')}</ul>`:`<p class="muted">${esc(f.note)}</p>`}${f.strengths.length?`<h3 class="sub">Going well</h3><ul class="strength-list">${f.strengths.map(x=>`<li><span class="glyph" aria-hidden="true">✓</span><span><strong>${esc(x.label)}</strong> <span class="muted">${esc(x.text)}</span></span></li>`).join('')}</ul>`:''}</section>
+  <section class="card"><h2>Goals</h2>${goalBars(goalRates(mine,goals()))}</section>
+ </div>
+ <section class="card chart-card"><h2>Outcome of each call</h2><p class="card-sub">Oldest on the left. Hover a mark to see the situation.</p>${done.length?outcomeStrip(done,(r,i)=>`Call ${i+1}, ${r.title}: ${label(r)}`):'<p class="empty">No finished calls yet.</p>'}</section>
+ <div class="dash-grid">
+  <section class="card chart-card"><h2>Time to first Fire or EMS message</h2><p class="card-sub">Seconds from the start of each call. The line is the 30 second goal.</p>${recent.length?firstChart:'<p class="empty">No finished calls yet.</p>'}</section>
+  <section class="card chart-card"><h2>Time to relay the caller’s change</h2><p class="card-sub">Seconds from the caller’s correction until every unit sent had it. An × means it never reached every unit.</p>${relayRuns.length?relayChart:'<p class="empty">No calls reached the caller’s correction yet.</p>'}</section>
+ </div>
+ <section class="card"><h2>Calls</h2><p class="card-sub">The numbers behind the graphs. Open a call to see its full timeline.</p>${done.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>Situation</th><th>Started</th><th>Outcome</th><th>First dispatch</th><th>Relay time</th><th>Record correct</th><th>Right place</th></tr></thead><tbody>${done.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<tr data-run="${esc(r.id)}"><td>${i+1}</td><td><button class="link-btn" data-open="${esc(r.id)}">${esc(r.title)}</button></td><td>${esc(when(r.created))}</td><td>${outcomeBadge(r.outcome.result)}</td><td>${seconds(r.performance.metrics.firstDispatchMs)}</td><td>${r.performance.metrics.correctionHeard?seconds(r.performance.metrics.relayMs):'n/a'}</td><td>${cell(r.performance.goals.accurateRecord)}</td><td>${cell(r.performance.goals.rightPlace)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No finished calls yet.</p>'}</section></main>`;
+ bindInstHeader();
+ document.querySelector('#back-runs').onclick=()=>{inst.view='runs';renderInstructor()};
  document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
 }
 async function openRun(id){inst.runId=id;inst.scrub=null;inst.view='run';await loadRun()}
@@ -271,6 +345,7 @@ function snapshotHtml(r,idx){
  const list=a=>a.length?`<ul>${a.map(x=>`<li>“${esc(x)}”</li>`).join('')}</ul>`:'<p class="muted">Nothing yet.</p>';
  return `${agentMap({counts})}<table class="compare"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">What really happened</th><th scope="col">Trainee’s record</th></tr></thead><tbody><tr><th scope="row">Location</th><td>${esc(r.scenario.truth.location)}</td><td>${esc(rec.location)||'—'}</td></tr><tr><th scope="row">Entrance, unit or side</th><td>${esc(r.scenario.truth.entrance)}</td><td>${esc(rec.entrance)||'—'}</td></tr>${rec.caller?`<tr><th scope="row">Caller</th><td></td><td>${esc(rec.caller)}</td></tr>`:''}${rec.notes?`<tr><th scope="row">Notes</th><td></td><td>${esc(rec.notes)}</td></tr>`:''}</tbody></table><div class="knows"><h3>Fire has been sent</h3>${list(told.Fire)}<h3>EMS has been sent</h3>${list(told.EMS)}</div>`;
 }
+function outcomeHtml(r){const o=r.outcome;if(r.status!=='ended'||!o)return '';const first=nameOf(r).split(' ')[0];const checks=goalChecks(r.performance);return `<section class="card outcome-card instructor-outcome"><div class="outcome-main"><p class="kicker">Outcome ${esc(first)} saw</p>${outcomeBadge(o.result)}<h2>${esc(o.headline)}</h2>${o.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>${checks?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${checks}</ul></div>`:''}</section>`}
 function observationsHtml(r){
  const o=r.observations,k=o.keywords,row=(ok,html)=>`<li><span class="glyph ${ok===true?'':ok===false?'no':'info'}" aria-hidden="true">${ok===true?'✓':ok===false?'–':'•'}</span><span>${html}</span></li>`,items=[];
  items.push(row(null,o.correctionAt!==null?`The caller corrected a detail at <strong>${time(o.correctionAt)}</strong>.`:'The run ended before the caller’s correction.'));
@@ -298,7 +373,7 @@ function runScreen(){
  app.innerHTML=instHeader()+`<main class="dash">
  <button class="back" id="back-runs">← All runs</button>
  <div class="run-head"><div><p class="kicker">${live?'Live now':'Finished'}${summary?.created?' · '+esc(when(summary.created)):''}</p><h1>${esc(nameOf(r))} · ${esc(r.title||'Situation')}</h1><p class="lead">${live?`Running for ${time(r.elapsed)}.`:`${time(r.elapsed)} long. ${esc(END_REASON[r.observations.ended?.reason]||'Ended')}.`}</p></div></div>
- ${observationsHtml(r)}
+ ${outcomeHtml(r)}${observationsHtml(r)}
  <div class="run-grid">
   <section class="card"><h2>What happened</h2><div class="scrub"><label for="scrub">Replay up to a moment</label><input type="range" id="scrub" min="0" max="${evs.length-1}" value="${idx}"><output id="scrub-time" for="scrub">${time(evs[idx]?.time||0)}</output></div>
    <ol class="timeline" id="timeline">${evs.map((e,i)=>{const d=describe(e,r);return `<li class="${d.cls}${i>idx?' future':''}" data-i="${i}"><time>${time(e.time)}</time><div><span class="who">${esc(d.who)}${d.tag?`<span class="tag">${esc(d.tag)}</span>`:''}</span>${d.say?`<p class="say">“${esc(d.say)}”</p>`:''}${d.text?`<p class="say">${esc(d.text)}</p>`:''}</div></li>`}).join('')}</ol></section>
@@ -353,12 +428,12 @@ async function libraryScreen(){
 }
 
 // ---------- Start ----------
-app.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;({next:nextSituation,'end-session':endSession,restart:restartSession,'change-name':changeName})[b.dataset.act]?.()});
+app.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;({next:nextSituation,finish:finishCall,'end-session':endSession,restart:restartSession,'change-name':changeName,progress:()=>{showProgress=true;render()},home:()=>{showProgress=false;render()}})[b.dataset.act]?.()});
 try{info=await api('info')}catch{}
 if(isInstructor)adminKey=tabStore.get('rr-admin')||'';
-else if(auth&&!showSummary){try{session=await api('sessions/'+auth.id)}catch(e){if([403,404].includes(e.status)){setAuth(null);session=null}else error(e)}}
+else if(auth&&!showSummary){const fromTab=!!tabStore.get('rr-session');try{session=await api('sessions/'+auth.id);/* A finished run saved by another tab is not reopened in a new tab: start at the welcome page instead. */if(session.status==='ended'&&!fromTab){setAuth(null);session=null}}catch(e){if([403,404].includes(e.status)){setAuth(null);session=null}else error(e)}}
 render();
 // Trainee clock: one read-only poll per second while a call is running.
 let polling=false;setInterval(async()=>{if(isInstructor||!auth||!session||session.status==='ended'||showSummary||polling||busy)return;polling=true;const id=auth.id;try{const next=await api('sessions/'+id);if(auth?.id!==id)return;const change=next.status!==session.status||next.review!==session.review;session=next;connection='';if(change)render();else paintMessages()}catch(e){connection='Reconnecting… what you have typed is kept on this device.'}finally{polling=false;const c=document.querySelector('#connection');if(c)c.textContent=connection}},1000);
 // Instructor dashboard: refresh the run list, or a live run, every few seconds without interrupting typing.
-setInterval(async()=>{if(!isInstructor||!adminKey||document.querySelector('dialog'))return;const typing=document.activeElement?.matches?.('input,textarea,select');try{if(inst.view==='runs'&&!typing){const next=await api('sessions',null,adminKey);if(inst.view==='runs'&&JSON.stringify(next)!==JSON.stringify(inst.runs)){const y=scrollY;await runsScreen(next);scrollTo(0,y)}}else if(inst.view==='run'&&inst.run&&inst.run.status!=='ended'&&!typing){const y=scrollY;await loadRun();scrollTo(0,y)}}catch{}},4000);
+setInterval(async()=>{if(!isInstructor||!adminKey||document.querySelector('dialog'))return;const typing=document.activeElement?.matches?.('input,textarea,select');try{if(inst.view==='runs'&&!typing){const next=await api('sessions',null,adminKey);if(inst.view==='runs'&&JSON.stringify(next)!==JSON.stringify(inst.runs)){const y=scrollY;await runsScreen(next);scrollTo(0,y)}}else if(inst.view==='trainee'&&!typing){const next=await api('sessions',null,adminKey);if(inst.view==='trainee'&&JSON.stringify(next)!==JSON.stringify(inst.runs)){inst.runs=next;const y=scrollY;traineeScreen();scrollTo(0,y)}}else if(inst.view==='run'&&inst.run&&inst.run.status!=='ended'&&!typing){const y=scrollY;await loadRun();scrollTo(0,y)}}catch{}},4000);

@@ -15,7 +15,9 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 **Trainee (no setup, plain language, large text)**
 - Enter your name and start. Every run is a **new situation** from a rotating library of fictional calls (plus any the instructor approves), skipping ones you just had.
 - A live map shows the caller, Fire and EMS **agents**, with each message travelling between them as it is sent.
-- After you have sent something, **New situation** and **End session** are always one click away. The session summary shows each call and your instructor’s released feedback.
+- **Outcomes, judged after the call ends:** each unit acts on the last thing it was told. Success means every unit you sent ended up with the corrected detail and your record shows it; failure comes with plain reasons (“Medic 4 went to the eastbound lanes, the wrong place. The last thing they were told was…”). Nothing is judged or hinted during the call.
+- **Goals and tasks:** four goals shown up front (quick first dispatch, relay changes fast, accurate record, right place) with per-call results, plus milestones like “three successes in a row”. A progress page shows success rate, goal rates against their aims, what to practice next and what is going well.
+- After you have sent something, **Finish call**, **New situation** and **End session** are always one click away.
 - Manual incident record (location, entrance, caller, notes). Nothing is prefilled or auto-corrected.
 - Separate Caller / Fire / EMS channels. Messages are delivered exactly as typed, including wrong content.
 - Delivery and acknowledgment are distinct events. Participants read back what they actually received, never facts they weren't sent.
@@ -26,7 +28,8 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 
 **Instructor (dashboard first, setup optional)**
 - **Runs dashboard:** every trainee run with status, length and automatic observations (was the caller’s correction recorded, and relayed to Fire and EMS?). Filter by trainee. These are keyword checks to guide review, not grades.
-- **Run detail:** a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
+- **Trainee profiles with performance graphs:** outcome of each call, seconds to first dispatch and seconds to relay a change (each against its goal line), goal rates, and focus areas with the evidence behind them (“EMS missed the change in 2 of 3 calls”). Automatic keyword checks, shown as such, never a grade.
+- **Run detail:** the outcome the trainee saw, a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
 - Author scenario versions: objective, attributed procedures, briefing, hidden truth, caller lines, readback reply templates, time limit.
 - Every save is an immutable draft; only an approved version can launch. Revisions link to their parent.
 - Generate a draft with **CREAO** (below). Output is checked, then loaded into the instructor's form, never auto-saved or auto-approved.
@@ -80,7 +83,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 53 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 64 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 

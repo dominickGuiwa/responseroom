@@ -6,7 +6,7 @@ import {Engine,scenario} from './engine.mjs';
 import {creaoConfig,startRun,pollRun,validateRequest,importScenario} from './creao.mjs';
 import {noopSentry,sentryFromEnv,routeTemplate} from './sentry.mjs';
 import {SITUATIONS,pickSituation} from './situations.mjs';
-import {observe} from './observations.mjs';
+import {observe,GOALS} from './observations.mjs';
 import {execFileSync} from 'node:child_process';
 export function createServer(engine,instructor,{creao=null,fetchImpl=fetch,sentry=noopSentry}={}){
 const root=fileURLToPath(new URL('.',import.meta.url));
@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  const tx=traced?sentry.startTransaction(`${req.method} ${route}`,'http.server'):noopSentry.startTransaction();
  res.on('finish',()=>{tx.setTag('http.status_code',res.statusCode);tx.finish(res.statusCode>=500?'internal_error':res.statusCode>=400?'invalid_argument':'ok')});
  try{if(req.method==='POST'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected'});
- if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
+ if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/insights.js':'insights.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
  let body={};if(req.method==='POST'){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>20000)return send(413,{error:'Request too large'})}try{body=JSON.parse(raw||'{}')}catch{return send(400,{error:'Request body is not valid JSON'})}}
  if(url.pathname==='/api/client-error'&&req.method==='POST'){const minute=Math.floor(Date.now()/60000);if(clientErrors.minute!==minute)clientErrors={minute,count:0};if(typeof body.message==='string'&&++clientErrors.count<=20)sentry.captureException({name:'BrowserError',message:body.message,stack:typeof body.stack==='string'?body.stack:''},{tags:{source:'browser',page:routeTemplate(String(body.path||''))}});res.writeHead(204);return res.end()}
  if(url.pathname==='/api/scenarios'){
@@ -48,7 +48,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
   }else if(req.method!=='GET')return send(405,{error:'Method not allowed'});
   return send(200,{connected:!!creao,generations:engine.generations(),scenarios:engine.scenarios()});
  }
- if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,creao:creao?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected'});
+ if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,goals:GOALS,creao:creao?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected'});
  if(url.pathname==='/api/sessions'&&req.method==='GET'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,engine.sessionsSummary())}
  // Each new run gets a different situation: built-in demo situations plus instructor-approved scenarios, avoiding recent ones.
  if(url.pathname==='/api/sessions'&&req.method==='POST'){const name=typeof body.name==='string'?body.name.trim():'';if(name.length>60)return send(400,{error:'Please use a name of 60 characters or fewer.'});const pool=[...SITUATIONS,...engine.scenarios().filter(x=>x.approved)];const picked=pickSituation(pool,Array.isArray(body.avoid)?body.avoid:[]);const s=engine.create(structuredClone(picked),{trainee:name||null});return send(201,{...engine.public(s),token:s.token})}
