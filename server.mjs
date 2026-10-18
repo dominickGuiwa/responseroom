@@ -130,7 +130,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
    else if(body.action==='poll'||body.action==='recheck'){if(body.action==='recheck'&&!engine.reopenGeneration(String(body.run)))return send(409,{error:'Only rejected runs can be rechecked'});const row=engine.generations().find(g=>g.run===body.run);if(!row)return send(404,{error:'Unknown generation'});if(row.status==='pending')await resolveGeneration(row,tx)}
    else return send(400,{error:'Unknown CREAO action'});
   }else if(req.method!=='GET')return send(405,{error:'Method not allowed'});
-  return send(200,{connected:!!creao,debriefConnected:!!debrief,callerConnected:!!caller,pool:poolStatus(),generations:engine.generations(),scenarios:engine.scenarios()});
+  return send(200,{connected:!!creao,debriefConnected:!!debrief,callerConnected:!!caller,services:{scenario:!!creao,debrief:!!debrief,caller:!!caller,voice:voice?{provider:'ElevenLabs',...voice.usage}:null},pool:poolStatus(),generations:engine.generations(),scenarios:engine.scenarios()});
  }
  if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,goals:GOALS,creao:creao?'Key configured':'Not connected',debrief:debrief?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected',audio:{connected:!!voice,provider:voice?'ElevenLabs':null},caller:{connected:!!caller}});
  if(url.pathname==='/api/sessions'&&req.method==='GET'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,engine.sessionsSummary())}

@@ -105,6 +105,21 @@ npm test               # 103 tests: engine, HTTP auth, knowledge boundaries, sto
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
+## Privacy: what leaves your machine
+
+Everything runs locally except three optional services. Each is off until its key is in `.env`, and the app says on the welcome page which ones are on.
+
+| Service | What is sent | When | Not sent |
+|---|---|---|---|
+| CREAO Scenario Builder | A brief written by the server: the learning objective and the list of situations already in the rotation | Background pool top-up, or the instructor’s Generate button | Anything about trainees |
+| CREAO Caller | The caller’s own lines so far, the last few lines of the call and the trainee’s message to the caller | Each time a trainee talks to the caller | Trainee name, hidden truth, keywords, units, the record |
+| CREAO Debrief Coach | The finished run’s timeline (messages, record edits, outcome, goals) and the trainee’s first name | Only when an instructor presses Draft with CREAO | Last names, other trainees |
+| ElevenLabs text to speech | The text of caller, Fire and EMS lines (including readbacks, which echo the trainee’s own words) | As lines arrive, once per distinct line (cached in SQLite afterwards) | — |
+| ElevenLabs Scribe | The trainee’s push-to-talk or dictation clip | Only after the trainee agrees to voice input on that device; typing is always available | Clips are never stored by this app; only the words the trainee chooses to send are logged |
+| Sentry | Error messages, stack traces, route templates and timings | On unexpected errors and API calls | Message text, record contents, names, keys (scrubbed again before sending) |
+
+Retention on the providers’ side follows their terms; for anything beyond a demo, use paid plans with zero-retention options and tell trainees. Nothing here is real emergency guidance and no real incident data should be entered.
+
 ## Security notes
 
 - Binds to `127.0.0.1` only; strict Content-Security-Policy; POST origin check; constant-time key comparison.

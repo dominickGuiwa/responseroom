@@ -522,3 +522,9 @@ details.ai-card[open]>summary{margin-bottom:8px}
 #send-help strong{color:var(--navy-900);font-variant-numeric:tabular-nums}
 
 .typing{align-self:flex-start;color:var(--muted);font-size:16px;font-style:italic;padding:2px 6px;animation:blink 1.4s ease-in-out infinite}
+
+/* Instructor: connected services */
+.services{list-style:none;padding:0;margin:4px 0 22px;display:flex;flex-wrap:wrap;gap:8px 12px;font-size:15px;color:var(--ink-2)}
+.svc{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--silver-300);border-radius:999px;padding:4px 12px;background:var(--surface)}
+.svc .dot{width:9px;height:9px;border-radius:50%;background:var(--silver-400);flex:none}
+.svc.on .dot{background:var(--navy-900)}
