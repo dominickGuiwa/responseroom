@@ -49,7 +49,13 @@ ResponseRoom calls the **ResponseRoom Scenario Builder** agent through CREAO's a
 - Participant replies, rubrics and AI interpretations are not imported. Hidden location and entrance are entered by the instructor, not guessed.
 - The `capi_` key lives only in `.env` on the server; artifact downloads never forward it to storage redirects.
 
-**Sentry:** not connected yet.
+## Sentry monitoring
+
+Optional, dependency-free reporting to Sentry's envelope endpoint (`sentry.mjs`), enabled by `SENTRY_DSN` in `.env`:
+- **Errors:** unexpected server errors (the client only sees a generic 500), uncaught browser errors forwarded through the server (rate-limited), and process crashes.
+- **Performance:** one transaction per API call, named by route template (`POST /api/sessions/:id`). The 1-second trainee poll is not traced.
+- **AI agent monitoring:** CREAO calls are traced as `ai.agent.run`, `ai.agent.poll` and `ai.validate` spans, tagged with the outcome. Rejected agent output and failed runs are reported as warnings with the validator's reason.
+- **Privacy by design:** only operational data is passed in. No message text, record contents, objectives, reviews, request bodies, tokens or keys are sent, and IDs, keys and emails are scrubbed again before sending. Tests parse the envelopes to check this.
 
 ## Quick start
 
@@ -64,12 +70,12 @@ Open http://127.0.0.1:4173.
 
 - **Trainee:** click *Start demo*.
 - **Instructor:** open http://127.0.0.1:4173/instructor. The instructor key is generated on first run in `.instructor-key` (local file, mode 600, gitignored).
-- **CREAO (optional):** `cp .env.example .env`, set `CREAO_API_KEY` to an app-scoped `capi_` key, restart.
+- **CREAO / Sentry (optional):** `cp .env.example .env`, set `CREAO_API_KEY` (app-scoped `capi_` key) and/or `SENTRY_DSN`, restart.
 
 ## Tests
 
 ```bash
-npm test               # 39 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter (mocked), voice
+npm test               # 46 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
@@ -85,6 +91,7 @@ npm run check:secrets  # fails if secrets/local state are tracked or appear anyw
 server.mjs      HTTP routes, auth, static files
 engine.mjs      exercise state, event log, scenarios, reviews, CREAO generations (SQLite)
 creao.mjs       CREAO API adapter and output validation
+sentry.mjs      minimal Sentry envelope reporter (errors, transactions, scrubbing)
 public/         vanilla JS/CSS client (trainee console + instructor UI)
 *.test.mjs      node:test suites
 scripts/        pre-publish secret check
@@ -93,11 +100,11 @@ docs/screenshots
 
 ## Limitations
 
-Local single-machine demo; scripted (not conversational) participants; one hidden location/entrance per scenario; no production authentication; Sentry not yet connected.
+Local single-machine demo; scripted (not conversational) participants; one hidden location/entrance per scenario; no production authentication.
 
 ## Built with
 
-Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, browser speech synthesis. Development was assisted by AI coding tools.
+Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, Sentry, browser speech synthesis. Development was assisted by AI coding tools.
 
 ## License
 

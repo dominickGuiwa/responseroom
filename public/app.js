@@ -15,6 +15,10 @@ loadDrafts();
 let session=null,channel='All',connection='Connected',adminKey='',review=null,info=null,busy=false;
 async function api(path,body,key=auth?.token){const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(key?{Authorization:'Bearer '+key}:{})},...(body?{body:JSON.stringify(body)}:{})});const data=await r.json();if(!r.ok)throw Object.assign(Error(data.error),{status:r.status});return data}
 function error(e){document.querySelector('#error')?.remove();const el=document.createElement('div');el.id='error';el.className='error';el.role='alert';el.textContent=e.message||e;app.prepend(el)}
+// Uncaught browser errors go to the server, which forwards a scrubbed copy to Sentry when configured.
+// Only the error message, stack and page path are sent; never drafts, messages or record contents.
+let clientErrorsSent=0;function reportClientError(message,stack){if(clientErrorsSent++>=10)return;fetch('/api/client-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:String(message).slice(0,500),stack:String(stack||'').slice(0,4000),path:location.pathname})}).catch(()=>{})}
+window.addEventListener('error',e=>reportClientError(e.message,e.error?.stack));window.addEventListener('unhandledrejection',e=>reportClientError(e.reason?.message||e.reason,e.reason?.stack));
 const speechAvailable='speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 let voiceOn=false,voiceSession=null,voiceCursor=0;
 function speakMessage(event){
