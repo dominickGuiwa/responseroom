@@ -12,28 +12,34 @@ import {audioConfig,createAudio,inferDistress} from './audio.mjs';
 import {demoLines} from './public/demo.js';
 import {generateInputs,buildGenerated,tooSimilar,debriefInputs,callerInputs} from './generate.mjs';
 import {execFileSync} from 'node:child_process';
-export function createServer(engine,instructor,{creao=null,debrief=null,caller=null,audio=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,callerPollMs=3000,pool={}}={}){
+export function createServer(engine,instructor,{creao=null,debrief=null,caller=null,audio=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,callerPollMs=3000,pool={},log=null}={}){
+// Opt-in stage log for the caller agent (RESPONSEROOM_DEBUG=1): run ids, timings and refusal reasons, never message text or keys.
+const debug=log||(process.env.RESPONSEROOM_DEBUG?(...a)=>console.log(new Date().toISOString().slice(11,19),'[caller]',...a):()=>{});
 const root=fileURLToPath(new URL('.',import.meta.url));
 // ElevenLabs voice (optional): reads lines already in a call's log and transcribes push-to-talk clips. The key stays here.
 const voice=audio?createAudio(audio,{fetchImpl,store:{get:k=>engine.audioGet(k),set:(k,v)=>engine.audioPut(k,v)}}):null;
 // Caller agent (optional third CREAO agent). When the trainee talks to the caller, the scripted readback is held for a
 // short while and a run is started with only what the caller knows. A reply that arrives in time, passes the guard and
 // is still wanted replaces the readback; otherwise the readback goes out as before. Nothing here blocks the request.
-const COACHING=/\b(you should|you need to|you must|you have to|make sure (?:you|to)|don['’]t forget|remember to)\b/i;
-const callerGuard=(text,s)=>{const t=String(text||'');if(/https?:\/\//i.test(t)||/\bas an ai\b/i.test(t)||/[\[\]*]/.test(t))return 'off-character';if(COACHING.test(t))return 'coaching';const k=s.scenario?.keywords;if(!s.corrected&&k?.corrected?.length&&mentionsAny(t,k.corrected))return 'names the correction early';return null};
+// Refusals: coaching the trainee on dispatcher procedure, naming units (a hint about what to send), stage directions,
+// or naming the corrected detail before the caller has said it. A plea like "please hurry" is distress, not coaching.
+const COACHING=/\b(?:you (?:should|need to|must|have to|ought to)|make sure (?:you|to)|don['’]t forget to|remember to)\s+(?:send|dispatch|record|write|note|log|ask|tell|call|check|update|relay|contact|get)\b/i;
+const UNITS=/\b(?:fire ?(?:department|dept|truck|engine|fighters?)|firemen|ambulance|paramedics?|medics?|ems|engine \d+|a truck|the trucks?)\b/i;
+const callerGuard=(text,s)=>{const t=String(text||'');if(/https?:\/\//i.test(t)||/\bas an ai\b/i.test(t)||/[\[\]*]/.test(t))return 'off-character';if(COACHING.test(t))return 'coaching';if(UNITS.test(t))return 'names units';const k=s.scenario?.keywords;const specific=(k?.corrected||[]).filter((w,i)=>i===0||/^(north|south|east|west)\b/i.test(w));if(!s.corrected&&specific.length&&mentionsAny(t,specific))return 'names the correction early';return null};
 const callerRuns=new Map(),asked=new Set();
 // Only the message just sent is asked about, once: a replayed request or an older message whose reply was refused never starts another run.
 function askCaller(s){if(!caller)return;const p=s.pending.filter(x=>x.to==='Caller'&&!x.reply).at(-1);if(!p||asked.has(p.id))return;asked.add(p.id);if(asked.size>5000)asked.delete(asked.values().next().value);callerRuns.set(p.id,{started:Date.now()});
  const tx=sentry.startTransaction('caller reply','ai.agent');const span=tx.startChild('ai.agent.run','CREAO Caller: start run');
- (async()=>{let run;try{run=await startRun(caller,callerInputs({session:s,events:engine.history(s.id),message:p}),fetchImpl);span.finish()}catch(e){span.finish('internal_error');sentry.captureException(e,{tags:{integration:'creao',stage:'caller-start'}});callerRuns.delete(p.id);return tx.finish('internal_error')}
-  callerRuns.set(p.id,{started:Date.now(),run});
+ const t0=Date.now();debug('ask',p.id.slice(0,8));
+ (async()=>{let run;try{run=await startRun(caller,callerInputs({session:s,events:engine.history(s.id),message:p}),fetchImpl);span.finish()}catch(e){span.finish('internal_error');sentry.captureException(e,{tags:{integration:'creao',stage:'caller-start'}});debug('start failed',e.message);callerRuns.delete(p.id);try{engine.replyFromAgent(s.id,p.id,null)}catch{}return tx.finish('internal_error')}
+  debug('run',run,'started in',Date.now()-t0,'ms');callerRuns.set(p.id,{started:Date.now(),run});
   const t=setInterval(async()=>{const entry=callerRuns.get(p.id);if(!entry||Date.now()-entry.started>caller.holdMs){clearInterval(t);callerRuns.delete(p.id);tx.setTag('creao.caller','timeout');return tx.finish('deadline_exceeded')}
-   let result;try{result=await pollRun(caller,run,fetchImpl,acceptCallerReply)}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-poll'}});return}
+   let result;try{result=await pollRun(caller,run,fetchImpl,acceptCallerReply)}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-poll'}});debug('poll error',e.message);return}
    if(result.status==='pending')return;clearInterval(t);callerRuns.delete(p.id);
-   if(result.status!=='completed'){tx.setTag('creao.caller','failed');sentry.captureMessage('CREAO caller run failed',{tags:{integration:'creao',reason:result.error}});return tx.finish('internal_error')}
+   if(result.status!=='completed'){tx.setTag('creao.caller','failed');sentry.captureMessage('CREAO caller run failed',{tags:{integration:'creao',reason:result.error}});debug('run failed',result.error);try{engine.replyFromAgent(s.id,p.id,null)}catch{}return tx.finish('internal_error')}
    const live=engine.get(s.id);const why=live?callerGuard(result.output.reply,live):'ended';
-   if(why){tx.setTag('creao.caller','guarded');sentry.captureMessage('CREAO caller reply not used',{tags:{integration:'creao',reason:why}});return tx.finish('ok')}
-   try{tx.setTag('creao.caller',engine.replyFromAgent(s.id,p.id,result.output)?'replied':'late')}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-reply'}})}
+   if(why){tx.setTag('creao.caller','guarded');sentry.captureMessage('CREAO caller reply not used',{tags:{integration:'creao',reason:why}});debug('reply refused:',why,'after',Date.now()-t0,'ms');try{engine.replyFromAgent(s.id,p.id,null)}catch{}return tx.finish('ok')}
+   try{const used=engine.replyFromAgent(s.id,p.id,result.output);tx.setTag('creao.caller',used?'replied':'late');debug(used?'replied':'late','distress',result.output.distress,'after',Date.now()-t0,'ms')}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-reply'}})}
    tx.finish('ok')},callerPollMs);t.unref?.()})()}
 // Browser error forwarding is rate-limited so a broken page cannot flood Sentry.
 let clientErrors={minute:0,count:0};

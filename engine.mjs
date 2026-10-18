@@ -50,7 +50,8 @@ export class Engine {
  audioGet(key){const r=this.db.prepare('SELECT type,bytes FROM voice_cache WHERE key=?').get(key);return r?{type:r.type,bytes:Buffer.from(r.bytes)}:null}
  audioPut(key,{type,bytes}){this.db.prepare('INSERT OR REPLACE INTO voice_cache(key,type,bytes,created) VALUES(?,?,?,?)').run(key,type,bytes,Date.now())}
  // Caller agent reply for a message still waiting on its readback: delivered at once (or at resume when paused). Returns null when it is too late.
- replyFromAgent(id,messageId,{reply,distress=1}){const s=this.get(id);if(!s||s.status==='ended')return null;const p=s.pending.find(x=>x.id===messageId&&x.to==='Caller'&&!x.reply);if(!p)return null;p.reply=String(reply);p.distress=distress;p.due=Math.min(p.due,s.elapsed);this.save(s);return this.tick(s)}
+ // With output null the held readback is simply released now (the agent failed or its reply was refused).
+ replyFromAgent(id,messageId,output){const s=this.get(id);if(!s||s.status==='ended')return null;const p=s.pending.find(x=>x.id===messageId&&x.to==='Caller'&&!x.reply);if(!p)return null;if(output){p.reply=String(output.reply);p.distress=output.distress??1}p.due=Math.min(p.due,s.elapsed);this.save(s);return this.tick(s)}
  scenarios(){return this.db.prepare('SELECT * FROM scenarios ORDER BY rowid DESC').all().map(r=>({...JSON.parse(r.data),approved:!!r.approved,approver:r.approver}))}
  // `extras` (keywords, map, units, detail, places, notes) come only from trusted server code, never from the authoring form.
  saveScenario(input,source={kind:'manual'},extras={}){
