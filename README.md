@@ -1,6 +1,6 @@
 # ResponseRoom
 
-**A fictional, voice-based 911-dispatcher training simulator.** A trainee takes a call they have never seen: the caller, Fire and EMS talk on separate channels, the trainee answers by push-to-talk and keeps the incident record by hand, and an aerial map shows units going exactly where they were sent. Three CREAO agents play the people on the line (writing new situations, answering as the caller, drafting feedback); ElevenLabs gives them voices. Every agent output is validated and has a scripted fallback, nothing is graded by AI, and feedback reaches a trainee only when a human instructor releases it.
+**A voice-based 911-dispatcher training simulator.** A trainee takes a call they have never seen: the caller, Fire and EMS talk on separate channels, the trainee answers by push-to-talk and keeps the incident record by hand, and an aerial map shows units going exactly where they were sent. Three CREAO agents play the people on the line (writing new situations, answering as the caller, drafting feedback); ElevenLabs gives them voices. Every agent output is validated and has a scripted fallback, nothing is graded by AI, and feedback reaches a trainee only when a human instructor releases it.
 
 Built entirely during the LA Hacks AI Hackathon 2026 at UCLA (17–18 October 2026; every commit is from that weekend) for the Applied AI track and the Creao AI, Workday *Build the Future of Work with AI*, Paper *Best Designed Hack*, Sentry and ElevenLabs prize categories.
 
