@@ -39,7 +39,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  const match=url.pathname.match(/^\/api\/sessions\/([\w-]+)(?:\/(\w+))?$/);if(!match)return send(404,{error:'Not found'});let s=engine.get(match[1]);if(!s)return send(404,{error:'Not found'});
  const secret=(req.headers.authorization||'').replace(/^Bearer /,'');const admin=same(secret,instructor);if(!admin&&!same(secret,s.token))return send(403,{error:'Access denied'});
  const route=match[2];if(route&&route!=='review')return send(404,{error:'Not found'});if(!['GET','POST'].includes(req.method))return send(405,{error:'Method not allowed'});if(route==='review'){if(!admin)return send(403,{error:'Instructor access required'});if(s.status!=='ended')return send(409,{error:'End the exercise before review'});if(req.method==='POST')s=engine.review(s.id,body);return send(200,{...engine.public(s),scenario:s.scenario,review:s.review,released:s.released,reviews:engine.reviewHistory(s.id)})}
- if(req.method==='POST'){s=engine.act(s.id,body.action,body.data||{},body.key)}else{s=engine.tick(s)}return send(200,engine.public(s));
+ if(req.method==='POST'){const trainee=same(secret,s.token);if(!trainee&&body.action!=='end')return send(403,{error:'The instructor key can only end an exercise'});s=engine.act(s.id,body.action,body.data||{},body.key,trainee?'trainee':'instructor')}else{s=engine.tick(s)}return send(200,engine.public(s));
  }catch(e){send(e.status||400,{error:e.message})}});
 return server;
 }

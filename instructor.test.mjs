@@ -10,3 +10,10 @@ test('exercise list is instructor-only and carries no tokens, truth or record co
 test('revision records its parent; unknown parent rejected; original untouched',async()=>{await withServer(async({call})=>{const base={title:'V1',objective:'o',procedures:'p',briefing:'b',location:'L1',entrance:'E',initialMessage:'i',correctionMessage:'c',correctionAt:5000};const v1=(await call('scenarios',{action:'save',scenario:base},'admin')).data[0];await call('scenarios',{action:'approve',id:v1.id,name:'A'},'admin');
  assert.equal((await call('scenarios',{action:'save',scenario:{...base,revisedFrom:'missing'}},'admin')).status,400);
  const list=(await call('scenarios',{action:'save',scenario:{...base,title:'V2',location:'L2',revisedFrom:v1.id}},'admin')).data;const v2=list[0],old=list.find(s=>s.id===v1.id);assert.equal(v2.revisedFrom,v1.id);assert.equal(v2.approved,false);assert.equal(old.approved,true);assert.equal(old.truth.location,'L1');assert.equal(old.revisedFrom,null)})});
+
+test('instructor key can end an exercise but never act as the trainee',async()=>{await withServer(async({engine,call})=>{const s=engine.create();const path='sessions/'+s.id;
+ for(const [action,data] of [['send',{to:'Fire',text:'instructor text'}],['record',{field:'notes',value:'instructor note'}],['pause',{}]])assert.equal((await call(path,{action,data,key:'i-'+action},'admin')).status,403,action);
+ const h=engine.history(s.id);assert.equal(h.some(e=>/instructor/.test(JSON.stringify(e.data))),false);assert.equal(engine.get(s.id).record.notes,'');
+ const ended=await call(path,{action:'end',data:{},key:'i-end'},'admin');assert.equal(ended.status,200);assert.equal(ended.data.status,'ended');assert.equal(engine.history(s.id).at(-1).data.reason,'instructor');
+ assert.equal((await call(path,{action:'send',data:{to:'Fire',text:'late'},key:'t1'},s.token)).status,400);assert.equal((await call(path,null,s.token)).data.events.at(-1).data.reason,'instructor');
+ const t=engine.create();await call('sessions/'+t.id,{action:'end',data:{},key:'t-end'},t.token);assert.equal('reason' in engine.history(t.id).at(-1).data,false)})});
