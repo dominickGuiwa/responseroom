@@ -554,3 +554,4 @@ details.ai-card[open]>summary{margin-bottom:8px}
 .card-head h2{letter-spacing:-.01em}
 .hear{min-height:44px}
 @media (max-width:600px){.brand .mark{width:26px;height:26px}.topbar:has(.call-meta) .brand{display:inline-flex}.topbar:has(.call-meta) .brand span{display:none}}
+@media (max-width:600px){.results-actions button{white-space:nowrap;padding:12px 14px;font-size:18px;min-height:56px}.results-actions .primary{flex:1.5}.nextbar button{white-space:nowrap;padding:12px 14px}}
