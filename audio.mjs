@@ -5,7 +5,7 @@
 //   POST {base}/v1/speech-to-text  header xi-api-key, multipart {model_id, file, language_code, …} -> {text, language_code, words}
 import {createHash} from 'node:crypto';
 // Premade library voices. Override per role with ELEVENLABS_VOICE_CALLER / _FIRE / _EMS (any voice id on the account).
-export const DEFAULT_VOICES=Object.freeze({Caller:'EXAVITQu4vr4xnSDxMaL',Fire:'nPczCjzI2devNBz1zQrb',EMS:'Xb7hH8MSUJpSbSDYk0k2',Dispatcher:'XB0fDUnXU5powFXDhCwa'});
+export const DEFAULT_VOICES=Object.freeze({Caller:'EXAVITQu4vr4xnSDxMaL',Fire:'nPczCjzI2devNBz1zQrb',EMS:'Xb7hH8MSUJpSbSDYk0k2',Dispatcher:'XrExE9yKIg1WjnnlVkGX'});
 export function audioConfig(env=process.env){
  const apiKey=env.ELEVENLABS_API_KEY?.trim();if(!apiKey)return null;
  const pick=(k,d)=>env[k]?.trim()||d;
@@ -26,8 +26,9 @@ const fail=(status,message)=>Object.assign(Error(message),{status});
 async function detail(response){try{const t=await response.text();try{const j=JSON.parse(t);return String(j?.detail?.message??j?.detail?.status??j?.detail??j?.message??t).slice(0,160)}catch{return t.slice(0,160)}}catch{return ''}}
 const EXT={'audio/webm':'webm','video/webm':'webm','audio/mp4':'m4a','audio/x-m4a':'m4a','audio/aac':'aac','audio/mpeg':'mp3','audio/ogg':'ogg','audio/wav':'wav','audio/x-wav':'wav','audio/wave':'wav','audio/flac':'flac'};
 
-// A small in-memory cache and a daily character budget keep repeated lines and runaway polling from spending credits.
-export function createAudio(config,{fetchImpl=fetch,now=Date.now}={}){
+// A cache (in memory, plus an optional persistent store such as the app's SQLite file) and a daily character budget keep
+// repeated lines and runaway polling from spending credits: a situation's scripted lines are synthesized once, ever.
+export function createAudio(config,{fetchImpl=fetch,now=Date.now,store=null}={}){
  const cache=new Map();const spend={day:'',chars:0};
  const today=()=>{const d=new Date(now()).toISOString().slice(0,10);if(spend.day!==d){spend.day=d;spend.chars=0}};
  return {
@@ -39,6 +40,7 @@ export function createAudio(config,{fetchImpl=fetch,now=Date.now}={}){
    const settings=voiceSettings(speaker,distress);
    const key=createHash('sha256').update([voice,config.ttsModel,JSON.stringify(settings),line].join('\n')).digest('hex');
    const hit=cache.get(key);if(hit){cache.delete(key);cache.set(key,hit);return hit}
+   const stored=store?.get(key);if(stored){cache.set(key,stored);return stored}
    today();if(spend.chars+line.length>config.dailyChars)throw fail(429,'Today’s voice budget is used up; device voices are used instead');
    const response=await fetchImpl(`${config.base}/v1/text-to-speech/${voice}?output_format=mp3_22050_32`,{method:'POST',headers:{'xi-api-key':config.apiKey,'Content-Type':'application/json',Accept:'audio/mpeg'},body:JSON.stringify({text:line,model_id:config.ttsModel,voice_settings:settings})});
    if(!response.ok){const d=await detail(response);throw fail(502,`ElevenLabs speech failed (${response.status})${d?': '+d:''}`)}
@@ -46,6 +48,7 @@ export function createAudio(config,{fetchImpl=fetch,now=Date.now}={}){
    spend.chars+=line.length;
    const clip={bytes,type:(response.headers.get('content-type')||'audio/mpeg').split(';')[0]};
    cache.set(key,clip);if(cache.size>400)cache.delete(cache.keys().next().value);
+   try{store?.set(key,clip)}catch{}
    return clip;
   },
   async transcribe({audio,type}){
