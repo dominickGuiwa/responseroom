@@ -410,3 +410,13 @@ tr[data-trainee]{cursor:pointer}
 @media (max-width:1000px){
  .console.has-map{grid-template-columns:1fr;grid-template-areas:"convo" "map" "side"}
 }
+
+/* One-button situation generation */
+.generate-card .card-head{align-items:center}
+.generate-card .card-head>div{min-width:0}
+.gen-list{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px}
+.gen-list li{display:flex;gap:12px;font-size:16px;border-top:1px solid var(--silver-200);padding-top:8px}
+.gen-list time{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+.gen-list .gen-pending span{font-weight:650}
+.situations .actions{margin-top:10px}
+@media (max-width:600px){.generate-card .card-head{flex-direction:column;align-items:stretch}}

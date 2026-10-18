@@ -35,7 +35,7 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - **Run detail:** the map at any replayed moment with the actual location marked, the outcome the trainee saw, a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
 - Author scenario versions: objective, attributed procedures, briefing, hidden truth, caller lines, readback reply templates, time limit.
 - Every save is an immutable draft; only an approved version can launch. Revisions link to their parent.
-- Generate a draft with **CREAO** (below). Output is checked, then loaded into the instructor's form, never auto-saved or auto-approved.
+- **Generate a new situation with one button.** CREAO writes a situation unlike anything in the rotation; the server checks it, builds the full situation (caller lines, hidden truth, keywords, units, map) and adds it to the rotation marked “Generated”. Any non-built-in situation can be removed with one click.
 - Exercises list; end a running exercise; replay any ended exercise with hidden truth, trainee record and participant knowledge side by side.
 - Write feedback as private drafts; release a version only after explicit verification. Review history is append-only.
 
@@ -55,10 +55,10 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 ## CREAO integration
 
 ResponseRoom calls the **ResponseRoom Scenario Builder** agent through CREAO's app-scoped API Trigger (`POST /api/v1/apps/{appId}/runs`, then poll the run).
-- The instructor gives a learning objective, seed, difficulty and duration. No procedures are sent, so every result stays DEMO ONLY.
-- The agent returns a `response-room-scenario/1.0.0` JSON artifact. ResponseRoom validates it and imports only caller lines, timing, the time limit and the briefing.
-- Participant replies, rubrics and AI interpretations are not imported. Hidden location and entrance are entered by the instructor, not guessed.
-- The `capi_` key lives only in `.env` on the server; artifact downloads never forward it to storage redirects.
+- **One button:** the server writes the brief itself, listing every situation already in the rotation (place, incident, wrong → right detail) as things to avoid, and asks for a new one. No procedures are sent, so every result stays DEMO ONLY.
+- The agent returns a `response-room-scenario/1.0.0` JSON artifact. ResponseRoom validates it, derives the hidden truth from the agent's two-version fact (first report vs. correction), checks that the caller lines actually say those details, and refuses anything that self-approves, cites unsupplied sources or auto-sends dispatcher messages.
+- **Uniqueness is enforced:** a result is refused if it shares a title, a place, the same wrong → right pair, or a near-identical caller report with anything in the rotation. The instructor sees the reason and can press again.
+- Accepted situations join the rotation immediately, marked “Generated”, with a one-click remove. Rubrics, AI interpretations and participant replies are never imported. Keys never leave the server, and artifact downloads never forward the key to storage redirects.
 
 ## Sentry monitoring
 
@@ -86,7 +86,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 75 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 82 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
@@ -104,6 +104,7 @@ engine.mjs      exercise state, event log, scenarios, reviews, CREAO generations
 creao.mjs       CREAO API adapter and output validation
 situations.mjs  built-in fictional situations with map params
 difficulty.mjs  random difficulty and caller timing per run
+generate.mjs    one-button CREAO generation: brief, derivation, uniqueness
 observations.mjs outcomes, goals, metrics and instructor observations
 public/streetmap.js shared aerial map: geometry, unit movement, popups, rendering
 public/insights.js  progress charts, goal rates, focus areas
