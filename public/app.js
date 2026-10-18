@@ -157,7 +157,7 @@ function endedCard(){
  const o=session.outcome,p=session.performance;
  const goalRows=goalChecks(p);
  return `<div class="ended-card"><section class="card outcome-card" role="status">
-  <div class="outcome-main"><p class="kicker">${session.difficulty?esc(session.difficulty.label)+' · ':''}${esc(why)}</p>${o?outcomeBadge(o.result):''}<h2>${esc(o?.headline||'This call has ended.')}</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>
+  <div class="outcome-main"><p class="kicker">${esc(why)}</p>${o?outcomeBadge(o.result):''}<h2>${esc(o?.headline||'This call has ended.')}</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>
   ${goalRows?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${goalRows}</ul></div>`:''}
   <div class="actions outcome-actions"><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="next">New situation</button></div></section></div>`;
 }
@@ -165,7 +165,7 @@ function consoleScreen(){
  lastMessages='';
  const isEnded=session.status==='ended',paused=session.status==='paused',locked=isEnded||paused;
  const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
- const right=(session.difficulty?`<span class="chip level">${esc(session.difficulty.label)}</span>`:'')+(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
+ const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
  const center=`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer" id="timer">${timerText()}</span></div>`;
  app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+(isEnded?endedCard():'')+`<main class="console has-map">
  <section class="card mapcard" aria-label="Map"><div class="card-head"><div><h2>Map</h2><p class="card-sub">Units go where you send them. Updates appear as they happen.</p></div></div><div id="street-map"></div></section>
@@ -232,7 +232,7 @@ async function action(action,data={}){
 function ended(){consoleScreen()}
 async function summaryScreen(){return progressScreen(true)}
 const tile=(num,label)=>`<div class="stat"><span class="num">${num}</span><span class="lbl">${label}</span></div>`;
-function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}${v.difficulty?` <span class="chip level">${esc(v.difficulty.label)}</span>`:''}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
+function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
 // Progress across every call this device has run under this name: focus areas, goal rates and tasks.
 function progressHtml(runs){
  const done=finished(runs);

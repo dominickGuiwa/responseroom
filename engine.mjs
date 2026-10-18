@@ -87,5 +87,5 @@ export class Engine {
   }catch(e){this.db.exec('ROLLBACK');throw e}
  }
  // After a call ends the trainee also gets its outcome and goal results (never while it is running).
- public(s){const events=this.history(s.id),ended=s.status==='ended',spec=buildMap(s.scenario);return {id:s.id,version:s.version,title:s.scenario?.title??null,trainee:s.trainee??null,created:s.created??null,difficulty:s.scenario?.difficulty?{level:s.scenario.difficulty.level,label:s.scenario.difficulty.label}:null,map:{spec:sanitizeSpec(spec),state:mapState(spec,events,s.elapsed)},status:s.status,elapsed:s.elapsed,record:s.record,events,outcome:ended?outcome(s.scenario,events):null,performance:ended?callMetrics(s.scenario,events):null,review:s.released?s.review:null,endAt:s.scenario?.endAt??null,reviewVersion:s.reviewVersion||null}}
+ public(s){const events=this.history(s.id),ended=s.status==='ended',spec=buildMap(s.scenario);return {id:s.id,version:s.version,title:s.scenario?.title??null,trainee:s.trainee??null,created:s.created??null,map:{spec:sanitizeSpec(spec),state:mapState(spec,events,s.elapsed)},status:s.status,elapsed:s.elapsed,record:s.record,events,outcome:ended?outcome(s.scenario,events):null,performance:ended?callMetrics(s.scenario,events):null,review:s.released?s.review:null,endAt:s.scenario?.endAt??null,reviewVersion:s.reviewVersion||null}}
 }
