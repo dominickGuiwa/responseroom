@@ -17,7 +17,8 @@ test('speaker: plays clips in order, falls back to device voices when the server
  sp.say(ev(1,'message','Caller','One'));sp.say(ev(2,'ack','Fire','Two'));sp.say(ev(3,'ack','EMS','Three'));assert.equal(sp.pending,2);await wait(90);
  assert.deepEqual(played,['start:One','end:One','start:Two','end:Two','start:Three','end:Three']);assert.deepEqual(spoken,['Two'],'only the line without a server clip used the device voice');
  sp.say(ev(4,'message','Caller','Four'));sp.say(ev(5,'message','Caller','Five'));sp.stop();assert.equal(sp.pending,0);assert.equal(cancelled,1);await wait(40);assert.ok(!played.includes('start:Five'),'queued lines are dropped on stop');
- const noOutput=createSpeaker({fetchClip,fallback:async e=>{spoken.push('fb:'+e.data.text)},AudioContextImpl:undefined});noOutput.say(ev(6,'message','Caller','Six'));await wait(20);assert.ok(spoken.includes('fb:Six'),'without an audio context the device voice is used')});
+ const noOutput=createSpeaker({fetchClip,fallback:async e=>{spoken.push('fb:'+e.data.text)},AudioContextImpl:undefined});noOutput.say(ev(6,'message','Caller','Six'));await wait(20);assert.ok(spoken.includes('fb:Six'),'without an audio context the device voice is used');
+ const fetched=[];const own=createSpeaker({fetchClip:async()=>{fetched.push('default');return null},fallback:async()=>{},AudioContextImpl:FakeContext});own.say(ev(7,'message','Dispatcher','Seven'),async e=>{fetched.push('own:'+e.data.text);return null});await wait(20);assert.deepEqual(fetched,['own:Seven'],'a line can bring its own clip source')});
 
 test('device voices: picks an enhanced English voice, resolves when the line ends, cancels on demand',async()=>{const said=[];let cancelled=0;
  const synth={getVoices:()=>[{name:'Daniel',lang:'en-GB',localService:true},{name:'Samantha Enhanced',lang:'en-US',localService:true},{name:'Amélie',lang:'fr-FR',localService:true}],speak:u=>{said.push(u);setTimeout(()=>u.onend(),2)},cancel:()=>cancelled++};

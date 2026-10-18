@@ -1,6 +1,7 @@
 import {finished,goalRates,summarize,focusAreas,tasks,outcomeBadge,goalBars,columnChart,outcomeStrip,seconds} from '/insights.js';
 import {buildMap,mapState,mountMap,renderMap} from '/streetmap.js';
 import {newMessages,createSpeaker,browserVoice,createRecorder} from '/audio.js';
+import {DEMO_SCENARIO,DEMO_EVENTS,DEMO_LOOP,demoLines} from '/demo.js';
 const LEVEL_LABEL={easy:'Easy',standard:'Standard',hard:'Hard'};
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,12 +95,10 @@ function goalsHtml(){return goals().length?`<section class="card goals-card" ari
 const aiUses=()=>['CREAO writes new situations: the place, the caller’s words and the detail that changes. Each is checked automatically; an instructor can remove any of them.',...(info?.caller?.connected?['During a call, a CREAO caller agent answers what you say to the caller, in character. It knows only what the caller knows.']:[]),info?.audio?.connected?'ElevenLabs voices read each message aloud and turn what you say into text. Clips go to ElevenLabs for that and are not kept by this app.':'Your device’s own voices read messages aloud.','Instructors can ask the agent for a first draft of feedback. A person always edits and approves it before a trainee sees it.'];
 const AI_NEVER=['give hints, suggested replies or warnings during a call','grade a trainee or rank trainees','tell Fire or EMS anything the trainee did not send','talk to the trainee during a call','use real emergency procedures'];
 function aiCard(forInstructor=false){const body=`<ul class="ai-list">${aiUses().map(t=>`<li>${esc(t)}</li>`).join('')}</ul><h3>What it never does</h3><ul class="ai-list never">${AI_NEVER.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>${forInstructor?'<p class="note">Feedback is released only by you, under your name.</p>':''}`;return forInstructor?`<details class="card ai-card"><summary><h2>AI in this app</h2></summary>${body}</details>`:`<section class="card ai-card" aria-labelledby="ai-title"><h2 id="ai-title">How this app uses AI</h2>${body}</section>`}
-// Welcome-page demo: a fictional call that is not in the rotation, replayed on the same map engine trainees use.
-const DEMO_SCENARIO={version:'welcome-demo',title:'Welcome demo',truth:{location:'Riverside Training Center, Mill Road',entrance:'North entrance'},units:{Fire:'Engine 1',EMS:'Medic 1'},keywords:{corrected:['north'],original:['east']},difficulty:{travel:{Fire:16,EMS:22}},map:{streets:{north:'Elm Street',main:'Mill Road',south:'Harbor Street',west:'First Avenue',center:'Center Avenue',east:'Ninth Avenue'},buildingLabel:'Training Center',original:'east',corrected:'north',place:['training center','mill road'],fire:{label:'Fire Station 1',km:1.2},ems:{label:'Medic 1 base (ambulance)',km:1.8},hospital:{label:'General Hospital',km:2.4}}};
-const demoMsg=(time,from,to,text)=>({kind:'message',time,data:{from,to,text}});
-const DEMO_EVENTS=[demoMsg(0,'Caller','Dispatcher','There’s smoke at the Training Center on Mill Road. I’m at the east entrance.'),{kind:'record',time:3000,data:{field:'location',value:'Riverside Training Center, Mill Road'}},demoMsg(7000,'Dispatcher','Fire','Smoke at the Training Center on Mill Road, east entrance'),demoMsg(12000,'Dispatcher','EMS','Training Center on Mill Road, possible injuries'),demoMsg(22000,'Caller','Dispatcher','Sorry, I’m at the north entrance, not the east.'),demoMsg(28000,'Dispatcher','Fire','Change that: go to the north entrance'),demoMsg(31000,'Dispatcher','EMS','North entrance, not east')];
-const DEMO_LOOP=72000;let demoTick=null;
-function startMapDemo(){clearInterval(demoTick);const spec=buildMap(DEMO_SCENARIO);const start=Date.now();let cycle=0,last=-1;const draw=()=>{const box=document.querySelector('#demo-map');if(!box)return clearInterval(demoTick);const t=(Date.now()-start)%DEMO_LOOP;if(t<last)cycle++;last=t;mountMap(box,spec,mapState(spec,DEMO_EVENTS,t),'demo-'+cycle);const cap=document.querySelector('#demo-caption');if(cap)cap.textContent=t<7000?'The caller reports the east entrance.':t<22000?'The dispatcher sends Fire and EMS to the east entrance.':t<28000?'The caller corrects it: north entrance.':t<45000?'The dispatcher relays the change; units re-route.':'Both units reach the north entrance.'};draw();demoTick=setInterval(draw,1000)}
+// Welcome-page demo (public/demo.js): replayed on the map and, with "Hear the call", spoken line by line.
+let demoTick=null,demoVoice=false;const demoSpoken=new Set();
+const demoClip=async e=>{const r=await fetch('/api/demo/audio?i='+e.data.index);return r.ok?await r.arrayBuffer():null};
+function startMapDemo(){clearInterval(demoTick);const spec=buildMap(DEMO_SCENARIO);const start=Date.now();let cycle=0,last=-1;const draw=()=>{const box=document.querySelector('#demo-map');if(!box)return clearInterval(demoTick);const t=(Date.now()-start)%DEMO_LOOP;if(t<last){cycle++;demoSpoken.clear()}last=t;mountMap(box,spec,mapState(spec,DEMO_EVENTS,t),'demo-'+cycle);if(demoVoice)for(const line of demoLines())if(line.time<=t&&t-line.time<4000&&!demoSpoken.has(line.index)){demoSpoken.add(line.index);speaker.say(line.event,demoClip)}const cap=document.querySelector('#demo-caption');if(cap)cap.textContent=t<7000?'The caller reports the east entrance.':t<22000?'The dispatcher sends Fire and EMS to the east entrance.':t<28000?'The caller corrects it: north entrance.':t<45000?'The dispatcher relays the change; units re-route.':'Both units reach the north entrance.'};draw();demoTick=setInterval(draw,1000)}
 function welcome(){
  clearInterval(demoTimer);
  const hasProgress=!!traineeName&&myRuns().length>0;
@@ -112,7 +111,7 @@ function welcome(){
   ${hasProgress?`<p class="progress-link"><button class="link-btn" data-act="progress">See your progress, ${esc(firstName(traineeName))}</button></p>`:''}
   <p class="fineprint">Fictional training only. Nothing here is real emergency guidance.</p>
  </section>
- <section class="card hero-map" aria-labelledby="demo-title"><div class="card-head"><div><h2 id="demo-title">Watch a call unfold</h2><p class="card-sub" id="demo-caption">The caller reports the east entrance.</p></div><span class="chip">Demo</span></div><div id="demo-map"></div></section>
+ <section class="card hero-map" aria-labelledby="demo-title"><div class="card-head"><div><h2 id="demo-title">Watch a call unfold</h2><p class="card-sub" id="demo-caption">The caller reports the east entrance.</p></div><button type="button" class="secondary hear" id="hear-demo" aria-pressed="false">Hear the call</button></div><div id="demo-map"></div></section>
  ${goalsHtml()}
  ${aiCard(false)}
  <section class="how card" aria-labelledby="how-title">
@@ -122,10 +121,11 @@ function welcome(){
  <footer class="sitefoot"><a href="/instructor">Instructor dashboard</a></footer>`;
  document.querySelector('#start-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#trainee-name').value.trim();if(!name||busy)return;traineeName=name;store.set('rr-trainee-name',name);needName=false;shift=[];tabStore.set('rr-shift',shift);busy=true;try{await startSituation()}catch(e){error(e)}finally{busy=false}};
  if(!traineeName||needName)document.querySelector('#trainee-name').focus();
+ const hear=document.querySelector('#hear-demo');hear.setAttribute('aria-pressed',String(demoVoice));hear.textContent=demoVoice?'Mute the call':'Hear the call';hear.onclick=()=>{demoVoice=!demoVoice;speaker.stop();demoSpoken.clear();speaker.unlock();hear.setAttribute('aria-pressed',String(demoVoice));hear.textContent=demoVoice?'Mute the call':'Hear the call'};
  startMapDemo();
 }
 async function startSituation(){
- speaker.unlock();
+ demoVoice=false;speaker.stop();speaker.unlock();
  const created=await api('sessions',{name:traineeName,avoid:recent});
  recent=[...recent.filter(v=>v!==created.version),created.version].slice(-6);store.set('rr-recent',recent);
  shift=[...shift,{id:created.id,token:created.token,title:created.title}];tabStore.set('rr-shift',shift);
@@ -169,7 +169,7 @@ function consoleScreen(){
  const isEnded=session.status==='ended',paused=session.status==='paused',locked=isEnded||paused;
  const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
  const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
- const canTalk=!!info?.audio?.connected&&recorder.supported;
+ canTalk=!!info?.audio?.connected&&recorder.supported;disarmAutoSend();
  const center=`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer" id="timer">${timerText()}</span></div>`;
  app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+`<main class="console has-map">
  <section class="card mapcard" aria-label="Map"><div class="card-head"><div><h2>Map</h2><p class="card-sub">Units go where you send them.</p></div></div><div id="street-map"></div></section>
@@ -178,13 +178,13 @@ function consoleScreen(){
   <form id="composer" class="composer"><fieldset ${locked?'disabled':''}><legend>Talk to</legend>
    <div class="send-to">${['Caller','Fire','EMS'].map(c=>`<button type="button" class="to" data-to="${c}" aria-pressed="${recipient===c}">${c}</button>`).join('')}</div>
    ${canTalk?`<div class="talk"><button type="button" id="ptt" class="ptt" data-state="idle" aria-pressed="false" aria-describedby="talk-help"><span class="ptt-dot" aria-hidden="true"></span><span class="ptt-text" id="ptt-text">Hold to talk to ${esc(recipient)}</span><time class="ptt-time" id="ptt-time"></time></button><p class="compose-help" id="talk-help">Hold the button or the space bar while you speak · release to transcribe</p></div>`:`<p class="compose-help">${info?.audio?.connected?'No microphone here, so type your messages.':'Voice input is not connected (ELEVENLABS_API_KEY), so type your messages.'}</p>`}
-   <div class="transcript" id="transcript" ${canTalk&&!draft?'hidden':''}><label for="draft" id="draft-label">${canTalk?'What you said':`Message to ${esc(recipient)}`}</label><div class="compose-row"><textarea id="draft" rows="2" maxlength="4000" placeholder="${canTalk?'':`Message to ${esc(recipient)}…`}">${esc(draft)}</textarea><button id="send" class="primary">Send</button></div><p class="compose-help">${canTalk?'Fix any word it got wrong · ':''}Enter sends${canTalk?' · <button type="button" class="link-btn" id="again">Record again</button>':''}</p></div>
+   <div class="transcript" id="transcript" ${canTalk&&!draft?'hidden':''}><label for="draft" id="draft-label">${canTalk?'What you said':`Message to ${esc(recipient)}`}</label><div class="compose-row"><textarea id="draft" rows="2" maxlength="4000" placeholder="${canTalk?'':`Message to ${esc(recipient)}…`}">${esc(draft)}</textarea><button id="send" class="primary">Send</button></div><p class="compose-help" id="send-help"></p></div>
   </fieldset></form>
  </section>
  <aside class="side">
   <section class="card"><div class="card-head"><div><h2>Incident record</h2><p class="card-sub">Only you fill this in. <span id="record-status" role="status">${recordStatus()}</span></p></div><button class="secondary" id="save-record" form="record-form" ${locked?'disabled':''}>Save record</button></div>
    <form id="record-form"><fieldset class="record-form" ${locked?'disabled':''}>
-    ${FIELDS.map(([k,label])=>`<div><label for="${k}">${label}</label>${k==='notes'?`<textarea id="${k}" rows="2">${esc(recordDrafts[k]??session.record[k])}</textarea>`:`<input id="${k}" autocomplete="off" value="${esc(recordDrafts[k]??session.record[k])}">`}</div>`).join('')}
+    ${FIELDS.map(([k,label])=>`<div><div class="field-head"><label for="${k}">${label}</label>${canTalk?`<button type="button" class="dictate" data-field="${k}" aria-label="Dictate ${esc(label)}" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4Zm6-4a6 6 0 0 1-12 0H4a8 8 0 0 0 7 7.94V22h2v-3.06A8 8 0 0 0 20 11h-2Z" fill="currentColor"/></svg><span>Say it</span></button>`:''}</div>${k==='notes'?`<textarea id="${k}" rows="2">${esc(recordDrafts[k]??session.record[k])}</textarea>`:`<input id="${k}" autocomplete="off" value="${esc(recordDrafts[k]??session.record[k])}">`}</div>`).join('')}
    </fieldset></form>
   </section>
  </aside></main>
@@ -193,10 +193,10 @@ function consoleScreen(){
  <p class="connection" id="connection" role="status">${esc(connection)}</p>`;
  document.querySelectorAll('.to').forEach(b=>b.onclick=()=>{recipient=b.dataset.to;store.set(draftKey('to'),recipient);document.querySelectorAll('.to').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));const box=document.querySelector('#draft');if(!canTalk){box.placeholder=`Message to ${recipient}…`;document.querySelector('#draft-label').textContent=`Message to ${recipient}`}setPtt(document.querySelector('#ptt')?.dataset.state||'idle');(canTalk&&document.querySelector('#transcript').hidden?document.querySelector('#ptt'):box)?.focus()});
  const box=document.querySelector('#draft');
- box.oninput=()=>{draft=box.value;store.set(draftKey('draft'),draft)};
- box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();document.querySelector('#composer').requestSubmit()}};
- document.querySelector('#composer').onsubmit=async e=>{e.preventDefault();if(busy||!draft.trim())return;busy=true;const sentText=draft,sendButton=document.querySelector('#send');sendButton.disabled=true;try{if(await action('send',{to:recipient,text:sentText})&&draft===sentText){draft='';store.del(draftKey('draft'));const input=document.querySelector('#draft');if(input)input.value='';if(canTalk)hideTranscript()}paintMessages()}catch(e){error(e)}finally{busy=false;sendButton.disabled=false;(canTalk&&document.querySelector('#transcript')?.hidden?document.querySelector('#ptt'):document.querySelector('#draft'))?.focus()}};
- const again=document.querySelector('#again');if(again)again.onclick=()=>{draft='';store.del(draftKey('draft'));box.value='';hideTranscript();document.querySelector('#ptt')?.focus()};
+ box.oninput=()=>{disarmAutoSend();draft=box.value;store.set(draftKey('draft'),draft)};
+ box.onkeydown=e=>{if(e.key==='Escape'&&autoSend){e.preventDefault();disarmAutoSend()}if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();document.querySelector('#composer').requestSubmit()}};
+ sendHelp('idle');document.querySelectorAll('.dictate').forEach(b=>b.onclick=()=>dictate(b.dataset.field));
+ document.querySelector('#composer').onsubmit=async e=>{e.preventDefault();disarmAutoSend();if(busy||!draft.trim())return;busy=true;const sentText=draft,sendButton=document.querySelector('#send');sendButton.disabled=true;try{if(await action('send',{to:recipient,text:sentText})&&draft===sentText){draft='';store.del(draftKey('draft'));const input=document.querySelector('#draft');if(input)input.value='';if(canTalk)hideTranscript()}paintMessages()}catch(e){error(e)}finally{busy=false;sendButton.disabled=false;(canTalk&&document.querySelector('#transcript')?.hidden?document.querySelector('#ptt'):document.querySelector('#draft'))?.focus()}};
  bindPushToTalk();
  for(const [k] of FIELDS){const el=document.getElementById(k);el.oninput=()=>{recordDrafts[k]=el.value;store.set(draftKey('record-drafts'),recordDrafts);document.querySelector('#record-status').textContent=recordStatus()}}
  document.querySelector('#record-form').onsubmit=e=>{e.preventDefault();saveRecord()};
@@ -205,22 +205,39 @@ function consoleScreen(){
 }
 // Push-to-talk wiring. Press and hold records; a quick tap starts a recording that the next tap ends. Space or Enter on
 // the button do the same from the keyboard, and the space bar works anywhere on the console when no field has focus.
-function hideTranscript(){const b=document.querySelector('#transcript');if(b)b.hidden=true}
+let canTalk=false,autoSend=null,dictating=null;
+const micError=e=>['NotAllowedError','SecurityError'].includes(e?.name)?'Microphone blocked. Allow it for this site in the address bar, then try again.':'Microphone unavailable. '+(e?.message||'');
+async function transcribeClip(clip){const r=await fetch('/api/sessions/'+auth.id+'/speech',{method:'POST',headers:{'Content-Type':clip.type||'audio/webm',Authorization:'Bearer '+auth.token},body:clip});const data=await r.json();if(!r.ok)throw Error(data.error);return String(data.text||'')}
+function hideTranscript(){disarmAutoSend();const b=document.querySelector('#transcript');if(b)b.hidden=true}
+// The line under the message box: idle help, or the hands-free countdown after a transcript (3 s to cancel or edit).
+function sendHelp(state,left){const help=document.querySelector('#send-help');if(!help)return;
+ if(state==='armed'){help.innerHTML=`Sending to ${esc(recipient)} in <strong>${left}</strong> s · <button type="button" class="link-btn" id="auto-cancel">Cancel</button>`;help.querySelector('#auto-cancel').onclick=()=>{disarmAutoSend();document.querySelector('#draft')?.focus()};return}
+ help.innerHTML=canTalk?'Fix any word it got wrong · Enter sends · <button type="button" class="link-btn" id="again">Record again</button>':'Enter sends';
+ const again=help.querySelector('#again');if(again)again.onclick=()=>{draft='';store.del(draftKey('draft'));const ta=document.querySelector('#draft');if(ta)ta.value='';hideTranscript();document.querySelector('#ptt')?.focus()}}
+function armAutoSend(){disarmAutoSend();let left=3;sendHelp('armed',left);autoSend=setInterval(()=>{if(session?.status!=='active'||!document.querySelector('#send-help'))return disarmAutoSend();left--;if(left>0)return sendHelp('armed',left);disarmAutoSend();if(!busy)document.querySelector('#composer')?.requestSubmit()},1000)}
+function disarmAutoSend(){if(autoSend){clearInterval(autoSend);autoSend=null;sendHelp('idle')}}
+// Dictation for a record field: tap to start, tap again to stop; the words fill the field and the record is saved.
+async function dictate(field){const button=()=>document.querySelector(`.dictate[data-field="${field}"]`),label=(t,on)=>{const b=button();if(!b)return;b.setAttribute('aria-pressed',String(on));b.querySelector('span').textContent=t};
+ if(recorder.recording){if(dictating!==field)return;dictating=null;label('Working…',false);const clip=await recorder.stop();
+  try{const text=clip&&clip.size>=2000?await transcribeClip(clip):'';if(!text){error('Didn’t catch that. Tap the button, speak, then tap again.');return}const el=document.getElementById(field);if(!el)return;el.value=text;recordDrafts[field]=text;store.set(draftKey('record-drafts'),recordDrafts);const st=document.querySelector('#record-status');if(st)st.textContent=recordStatus();await saveRecord();el.focus()}
+  catch(e){error(e)}finally{label('Say it',false)}return}
+ if(busy||session?.status!=='active'||pttBusy())return;try{await recorder.start()}catch(e){error(micError(e));return}dictating=field;label('Listening… tap to stop',true)}
+const pttBusy=()=>document.querySelector('#ptt')?.dataset.state==='busy';
 function setPtt(state){const p=document.querySelector('#ptt');if(!p)return;p.dataset.state=state;p.setAttribute('aria-pressed',String(state==='recording'));p.disabled=state==='busy';const t=document.querySelector('#ptt-text');if(t)t.textContent=state==='recording'?'Listening… release or tap to stop':state==='busy'?'Transcribing…':`Hold to talk to ${recipient}`;const c=document.querySelector('#ptt-time');if(c)c.textContent=state==='recording'?'00:00':''}
 let pttHeld=0;
-async function pttBegin(){const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording||busy||session?.status!=='active')return;pttHeld=Date.now();try{await recorder.start()}catch(e){error(['NotAllowedError','SecurityError'].includes(e?.name)?'Microphone blocked. Allow it for this site in the address bar, then try again.':'Microphone unavailable. '+(e?.message||''));const b=document.querySelector('#transcript');if(b)b.hidden=false;return}setPtt('recording')}
-async function pttFinish(){if(!recorder.recording)return;setPtt('busy');const clip=await recorder.stop();if(!clip||clip.size<2000){setPtt('idle');error('Didn’t catch that. Hold the button while you speak.');return}
- try{const r=await fetch('/api/sessions/'+auth.id+'/speech',{method:'POST',headers:{'Content-Type':clip.type||'audio/webm',Authorization:'Bearer '+auth.token},body:clip});const data=await r.json();if(!r.ok)throw Error(data.error);
-  if(!data.text){setPtt('idle');error('No words were recognised. Try again, a little closer to the microphone.');return}
-  draft=data.text;store.set(draftKey('draft'),draft);const b=document.querySelector('#transcript'),ta=document.querySelector('#draft');if(b)b.hidden=false;if(ta)ta.value=draft;setPtt('idle');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+async function pttBegin(){const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording||busy||session?.status!=='active')return;pttHeld=Date.now();try{await recorder.start()}catch(e){error(micError(e));const b=document.querySelector('#transcript');if(b)b.hidden=false;return}setPtt('recording')}
+async function pttFinish(){if(!recorder.recording||dictating)return;setPtt('busy');const clip=await recorder.stop();if(!clip||clip.size<2000){setPtt('idle');error('Didn’t catch that. Hold the button while you speak.');return}
+ try{const text=await transcribeClip(clip);
+  if(!text){setPtt('idle');error('No words were recognised. Try again, a little closer to the microphone.');return}
+  draft=text;store.set(draftKey('draft'),draft);const b=document.querySelector('#transcript'),ta=document.querySelector('#draft');if(b)b.hidden=false;if(ta)ta.value=draft;setPtt('idle');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}armAutoSend()}
  catch(e){setPtt('idle');error(e)}}
 function bindPushToTalk(){const p=document.querySelector('#ptt');if(!p)return;
- p.onpointerdown=e=>{e.preventDefault();if(recorder.recording)pttFinish();else pttBegin()};
+ p.onpointerdown=e=>{e.preventDefault();if(dictating)return;if(recorder.recording)pttFinish();else pttBegin()};
  p.onpointerup=p.onpointercancel=p.onpointerleave=()=>{if(recorder.recording&&Date.now()-pttHeld>600)pttFinish()};
  p.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();if(!e.repeat&&!recorder.recording)pttBegin()}};
  p.onkeyup=e=>{if((e.key===' '||e.key==='Enter')&&recorder.recording){e.preventDefault();pttFinish()}};
  p.onclick=e=>e.preventDefault()}
-document.addEventListener('keydown',e=>{if(e.key!==' '||e.repeat||e.target.closest?.('input,textarea,button,select,a,[contenteditable]'))return;const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording)return;e.preventDefault();p.focus();pttBegin()});
+document.addEventListener('keydown',e=>{if(e.key!==' '||e.repeat||e.target.closest?.('input,textarea,button,select,a,[contenteditable]'))return;const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording||dictating)return;e.preventDefault();p.focus();pttBegin()});
 async function saveRecord(){
  const status=document.querySelector('#record-status');
  const changes=FIELDS.map(([k])=>[k,document.getElementById(k).value]).filter(([k,v])=>v!==session.record[k]);

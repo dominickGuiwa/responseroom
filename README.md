@@ -26,7 +26,7 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - Recording and transmitting are independent. You can send before recording, record without sending, or both.
 - Scripted caller corrections at authored times, optional time limit, pause/resume/end.
 - No live hints, suggested replies, missing-step warnings, scores or hidden-truth leaks.
-- **Voice, both ways (ElevenLabs).** Every caller, Fire and EMS line is read aloud as it arrives, in a different voice per role; the caller’s voice gets less steady as their distress rises. The trainee talks instead of typing: hold the button (or the space bar), release, and the transcript appears for a quick check before it is sent. Without an ElevenLabs key the device’s own voices read messages and trainees type; a blocked microphone falls back to typing too. Screen-reader announcements; phone-width layout.
+- **Voice, both ways (ElevenLabs).** Every caller, Fire and EMS line is read aloud as it arrives, in a different voice per role; the caller’s voice gets less steady as their distress rises. The trainee talks instead of typing: hold the button (or the space bar), release, and the transcript appears and sends itself three seconds later unless you edit or cancel it. Record fields have a “Say it” button that dictates straight into the field and saves it. The welcome page’s demo call can be heard too (“Hear the call”). Without an ElevenLabs key the device’s own voices read messages and trainees type; a blocked microphone falls back to typing too. Screen-reader announcements; phone-width layout.
 - **Fire is yellow, EMS is red:** thin accent lines on the send-to buttons, message bubbles, map markers, stations and the instructor’s timeline. Never used for status or scores.
 - **Results take the whole page** when a call ends: outcome, goals and where help ended up, with the previous conversation out of the way. New situation or End session from there.
 
@@ -71,6 +71,8 @@ ResponseRoom calls the **ResponseRoom Scenario Builder** agent through CREAO's a
 Optional, enabled by `ELEVENLABS_API_KEY` in `.env` (`audio.mjs`, `public/audio.js`). The key never reaches the browser.
 - **Text to speech:** `GET /api/sessions/:id/audio?event=…` voices a line that is already in that call’s log (never arbitrary text), with the call’s own token or the instructor key. One premade voice per role (`ELEVENLABS_VOICE_CALLER/_FIRE/_EMS` to change them), `eleven_flash_v2_5` by default, caller `voice_settings` driven by a distress level. Identical lines are cached in memory and a daily character budget (`ELEVENLABS_DAILY_CHARS`, default 40 000) protects credits; when it runs out, device voices take over.
 - **Speech to text:** the browser records a push-to-talk clip (MediaRecorder, capped at 45 s) and posts it to `POST /api/sessions/:id/speech`; the server forwards it to Scribe (`scribe_v1`) and returns the transcript. Transcripts are never written to the log: only what the trainee sends becomes a message, so the record stays what they actually said. Only the trainee’s token may speak on a call.
+- **Hands-free:** after a transcript the message sends itself in 3 s (Enter sends now, Esc or any edit cancels). Record fields dictate with one tap and save on their own. Scripted caller lines get a distress level from their words (`inferDistress`); the caller agent sends its own.
+- **Welcome demo:** `GET /api/demo/audio?i=N` voices one of the fixed demo lines (`public/demo.js`, shared with the server, so nothing else can be synthesized there); no sign-in, cached, a fourth premade voice for the dispatcher.
 - **Fallbacks:** no key → device voices and typed input; blocked microphone → typed input; failed clip → device voice for that line. Tests mock ElevenLabs entirely (`audio.test.mjs`, `voice.test.mjs`).
 
 ## Sentry monitoring
@@ -99,7 +101,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 101 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO (scenario, debrief and caller agents), ElevenLabs and Sentry (all mocked), voice
+npm test               # 103 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO (scenario, debrief and caller agents), ElevenLabs and Sentry (all mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
@@ -120,6 +122,7 @@ difficulty.mjs  random difficulty and caller timing per run
 generate.mjs    one-button CREAO generation: brief, derivation, uniqueness
 audio.mjs       ElevenLabs adapter: per-role voices, caching, budget, transcription
 public/audio.js read-aloud queue, device-voice fallback, push-to-talk recorder
+public/demo.js  the welcome-page demo call (map replay and spoken lines)
 observations.mjs outcomes, goals, metrics and instructor observations
 public/streetmap.js shared aerial map: geometry, unit movement, popups, rendering
 public/insights.js  progress charts, goal rates, focus areas

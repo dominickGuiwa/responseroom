@@ -5,12 +5,12 @@
 //   POST {base}/v1/speech-to-text  header xi-api-key, multipart {model_id, file, language_code, …} -> {text, language_code, words}
 import {createHash} from 'node:crypto';
 // Premade library voices. Override per role with ELEVENLABS_VOICE_CALLER / _FIRE / _EMS (any voice id on the account).
-export const DEFAULT_VOICES=Object.freeze({Caller:'EXAVITQu4vr4xnSDxMaL',Fire:'nPczCjzI2devNBz1zQrb',EMS:'Xb7hH8MSUJpSbSDYk0k2'});
+export const DEFAULT_VOICES=Object.freeze({Caller:'EXAVITQu4vr4xnSDxMaL',Fire:'nPczCjzI2devNBz1zQrb',EMS:'Xb7hH8MSUJpSbSDYk0k2',Dispatcher:'XB0fDUnXU5powFXDhCwa'});
 export function audioConfig(env=process.env){
  const apiKey=env.ELEVENLABS_API_KEY?.trim();if(!apiKey)return null;
  const pick=(k,d)=>env[k]?.trim()||d;
  return {apiKey,base:pick('ELEVENLABS_BASE_URL','https://api.elevenlabs.io').replace(/\/$/,''),ttsModel:pick('ELEVENLABS_TTS_MODEL','eleven_flash_v2_5'),sttModel:pick('ELEVENLABS_STT_MODEL','scribe_v1'),
-  voices:{Caller:pick('ELEVENLABS_VOICE_CALLER',DEFAULT_VOICES.Caller),Fire:pick('ELEVENLABS_VOICE_FIRE',DEFAULT_VOICES.Fire),EMS:pick('ELEVENLABS_VOICE_EMS',DEFAULT_VOICES.EMS)},
+  voices:{Caller:pick('ELEVENLABS_VOICE_CALLER',DEFAULT_VOICES.Caller),Fire:pick('ELEVENLABS_VOICE_FIRE',DEFAULT_VOICES.Fire),EMS:pick('ELEVENLABS_VOICE_EMS',DEFAULT_VOICES.EMS),Dispatcher:pick('ELEVENLABS_VOICE_DISPATCHER',DEFAULT_VOICES.Dispatcher)},
   dailyChars:Math.max(1000,Number(env.ELEVENLABS_DAILY_CHARS)||40000)};
 }
 // Units sound like a steady radio operator. The caller is less stable and more expressive as distress rises (0 calm … 3 frantic).
@@ -19,6 +19,8 @@ export function voiceSettings(speaker,distress=1){
  if(speaker==='Caller')return {stability:+(0.5-0.1*d).toFixed(2),similarity_boost:0.75,style:+(0.2+0.2*d).toFixed(2),use_speaker_boost:false};
  return {stability:0.8,similarity_boost:0.75,style:0,use_speaker_boost:false};
 }
+// Scripted caller lines carry no distress value; the words decide how the voice is set (the caller agent sends its own).
+export const inferDistress=text=>{const t=String(text||'');if(/!{2,}|\b(help me|please hurry|oh (my )?god|can['’]t breathe|dying)\b/i.test(t))return 3;if(/!|\b(hurry|please|quick(ly)?|worse|scared|bleeding|trapped|smoke|fire|gas)\b/i.test(t))return 2;return 1};
 const fail=(status,message)=>Object.assign(Error(message),{status});
 // Error bodies are quoted briefly; they never include the key.
 async function detail(response){try{const t=await response.text();try{const j=JSON.parse(t);return String(j?.detail?.message??j?.detail?.status??j?.detail??j?.message??t).slice(0,160)}catch{return t.slice(0,160)}}catch{return ''}}

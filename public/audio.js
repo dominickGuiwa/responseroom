@@ -28,15 +28,16 @@ export function createSpeaker({fetchClip,fallback,cancelFallback,onStart,onEnd,A
  async function drain(){
   if(playing)return;playing=true;
   try{while(queue.length){
-   const event=queue.shift(),gen=generation;let spoken=false;
+   const {event,fetch}=queue.shift(),gen=generation;let spoken=false;
    onStart?.(event);
-   if(fetchClip){try{const bytes=await fetchClip(event);if(gen===generation&&bytes&&bytes.byteLength){await playBuffer(bytes);spoken=true}}catch{}}
+   if(fetch){try{const bytes=await fetch(event);if(gen===generation&&bytes&&bytes.byteLength){await playBuffer(bytes);spoken=true}}catch{}}
    if(!spoken&&gen===generation&&fallback){try{await fallback(event)}catch{}}
    onEnd?.(event);
   }}finally{playing=false}
  }
  return {
-  say(event){queue.push(event);drain()},
+  // A line may bring its own clip source (the welcome demo does); otherwise the speaker's fetchClip is used.
+  say(event,fetch=fetchClip){queue.push({event,fetch});drain()},
   // Stops the current line and forgets the rest: used the moment a call pauses or ends.
   stop(){generation++;queue.length=0;try{current?.stop()}catch{}current=null;try{cancelFallback?.()}catch{}},
   // Browsers only play sound after the person has interacted with the page; call this from the first click or key press.

@@ -509,3 +509,14 @@ details.ai-card[open]>summary{margin-bottom:8px}
 .unit-head.fire::before{background:var(--fire)}
 .unit-head.ems::before{background:var(--ems)}
 .dash .ai-card .ai-list{columns:1}
+
+/* Hands-free: hear the demo, dictate record fields */
+.hero-map .hear{min-height:44px;padding:8px 16px;font-size:16px;white-space:nowrap}
+.hero-map .hear[aria-pressed=true]{background:var(--navy-900);border-color:var(--navy-900);color:#fff}
+.field-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.field-head label{margin:0}
+.dictate{min-height:34px;padding:4px 12px 4px 10px;font-size:14px;font-weight:650;border:1.5px solid var(--silver-400);border-radius:999px;display:inline-flex;align-items:center;gap:6px;color:var(--navy-900);background:var(--surface);white-space:nowrap}
+.dictate svg{width:14px;height:14px;flex:none}
+.dictate[aria-pressed=true]{background:var(--navy-900);border-color:var(--navy-900);color:#fff}
+.dictate[aria-pressed=true] svg{animation:blink 1s ease-in-out infinite}
+#send-help strong{color:var(--navy-900);font-variant-numeric:tabular-nums}
