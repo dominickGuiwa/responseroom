@@ -12,7 +12,10 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 
 ## What it does
 
-**Trainee console**
+**Trainee (no setup, plain language, large text)**
+- Enter your name and start. Every run is a **new situation** from a rotating library of fictional calls (plus any the instructor approves), skipping ones you just had.
+- A live map shows the caller, Fire and EMS **agents**, with each message travelling between them as it is sent.
+- After you have sent something, **New situation** and **End session** are always one click away. The session summary shows each call and your instructor’s released feedback.
 - Manual incident record (location, entrance, caller, notes). Nothing is prefilled or auto-corrected.
 - Separate Caller / Fire / EMS channels. Messages are delivered exactly as typed, including wrong content.
 - Delivery and acknowledgment are distinct events. Participants read back what they actually received, never facts they weren't sent.
@@ -21,7 +24,9 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - No live hints, suggested replies, missing-step warnings, scores or hidden-truth leaks.
 - Optional voice for incoming messages (browser speech synthesis); screen-reader announcements; phone-width layout.
 
-**Instructor**
+**Instructor (dashboard first, setup optional)**
+- **Runs dashboard:** every trainee run with status, length and automatic observations (was the caller’s correction recorded, and relayed to Fire and EMS?). Filter by trainee. These are keyword checks to guide review, not grades.
+- **Run detail:** a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
 - Author scenario versions: objective, attributed procedures, briefing, hidden truth, caller lines, readback reply templates, time limit.
 - Every save is an immutable draft; only an approved version can launch. Revisions link to their parent.
 - Generate a draft with **CREAO** (below). Output is checked, then loaded into the instructor's form, never auto-saved or auto-approved.
@@ -75,7 +80,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 46 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 53 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 

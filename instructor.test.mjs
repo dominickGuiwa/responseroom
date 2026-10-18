@@ -5,7 +5,7 @@ test('exercise list is instructor-only and carries no tokens, truth or record co
  assert.equal((await call('sessions')).status,403);assert.equal((await call('sessions',null,b.token)).status,403);
  const list=await call('sessions',null,'admin');assert.equal(list.status,200);assert.equal(list.data.length,2);const raw=JSON.stringify(list.data);for(const secret of [a.token,b.token,'North entrance','truth','private note'])assert.equal(raw.includes(secret),false,secret);
  const ended=list.data.find(s=>s.id===a.id);assert.equal(ended.status,'ended');assert.equal(ended.reviews,1);assert.equal(ended.released,false);assert.equal(ended.title,'Cedar Court');assert.equal(typeof ended.created,'number');
- assert.equal((await call('sessions/'+a.id+'/review',null,'admin')).status,200);assert.equal((await call('sessions/'+b.id+'/review',null,'admin')).status,409)})});
+ assert.equal((await call('sessions/'+a.id+'/review',null,'admin')).status,200);assert.equal((await call('sessions/'+b.id+'/review',null,'admin')).status,200);assert.equal((await call('sessions/'+b.id+'/review',{text:'x',reviewer:'T'},'admin')).status,409)})});
 
 test('revision records its parent; unknown parent rejected; original untouched',async()=>{await withServer(async({call})=>{const base={title:'V1',objective:'o',procedures:'p',briefing:'b',location:'L1',entrance:'E',initialMessage:'i',correctionMessage:'c',correctionAt:5000};const v1=(await call('scenarios',{action:'save',scenario:base},'admin')).data[0];await call('scenarios',{action:'approve',id:v1.id,name:'A'},'admin');
  assert.equal((await call('scenarios',{action:'save',scenario:{...base,revisedFrom:'missing'}},'admin')).status,400);
