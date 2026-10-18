@@ -420,3 +420,31 @@ tr[data-trainee]{cursor:pointer}
 .gen-list .gen-pending span{font-weight:650}
 .situations .actions{margin-top:10px}
 @media (max-width:600px){.generate-card .card-head{flex-direction:column;align-items:stretch}}
+
+/* Welcome: the map is the hero */
+.welcome.hero-layout{grid-template-columns:minmax(300px,.8fr) minmax(0,1.5fr);grid-template-areas:"start map" "goals ai" "how how";align-items:stretch}
+.welcome-card{grid-area:start}
+.hero-map{grid-area:map;display:flex;flex-direction:column}
+.hero-map .card-head{align-items:center}
+.hero-map .street-map{border-radius:12px}
+.hero-map .map-status,.hero-map .map-updates{display:none}
+.hero-map .map-toasts{top:12px;right:12px;left:30%}
+.goals-card{grid-area:goals}
+.ai-card{grid-area:ai}
+.how{grid-area:how}
+.how.card .steps{margin-top:12px}
+.ai-list{margin:10px 0 0;padding-left:22px;display:grid;gap:8px}
+.ai-card h3{margin-top:18px}
+.ai-list.never li{color:var(--ink-2)}
+.ai-list.never{list-style:none;padding:0}
+.ai-list.never li::before{content:"–";margin-right:10px;font-weight:800;color:var(--navy-900)}
+.dash .ai-card{margin-bottom:24px}
+.dash .ai-card .ai-list{columns:2;column-gap:32px}
+.dash .ai-card .ai-list li{break-inside:avoid}
+.draft-row{margin:8px 0 14px;align-items:center}
+.draft-row .note{flex:1 1 260px}
+.pool-status{margin-top:12px}
+@media (max-width:1000px){
+ .welcome.hero-layout{grid-template-columns:1fr;grid-template-areas:"start" "map" "goals" "ai" "how"}
+ .dash .ai-card .ai-list{columns:1}
+}

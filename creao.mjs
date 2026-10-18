@@ -8,6 +8,20 @@
 export const CREAO_DEFAULT_APP = '94bd717e-a1a6-49bf-82d9-6a5d64c2c720';
 const DIFFICULTIES = ['Introductory', 'Standard', 'Advanced'];
 
+// The Debrief Coach is a second CREAO agent with its own app-scoped key. Optional; feedback drafting is off without it.
+export function debriefConfig(env = process.env) {
+ const appId = env.CREAO_DEBRIEF_APP_ID?.trim(), apiKey = env.CREAO_DEBRIEF_API_KEY?.trim();
+ if (!appId || !apiKey) return null;
+ return { apiKey, appId, base: (env.CREAO_BASE_URL?.trim() || 'https://agent.creao.ai').replace(/\/$/, '') };
+}
+// Debrief output: JSON {draft, citations} or plain prose; never shown to a trainee before a human edits and releases it.
+export const acceptDebrief = text => {
+ const t = String(text ?? '').trim();
+ try { const v = JSON.parse(t); if (v && typeof v.draft === 'string' && v.draft.trim().length >= 20) return { draft: v.draft.trim().slice(0, 2000), citations: Array.isArray(v.citations) ? v.citations.map(Number).filter(Number.isInteger).slice(0, 40) : [] } } catch {}
+ if (t.length >= 40 && !t.startsWith('{')) return { draft: t.slice(0, 2000), citations: [...t.matchAll(/#(\d{1,5})/g)].map(m => Number(m[1])).slice(0, 40) };
+ return null;
+};
+const acceptScenario = text => { try { const v = JSON.parse(text); return v?.schema_version ? v : null } catch { return null } };
 export function creaoConfig(env = process.env) {
  const apiKey = env.CREAO_API_KEY?.trim();
  if (!apiKey) return null;
@@ -56,20 +70,19 @@ async function downloadArtifact(config, url, fetchImpl) {
 }
 
 // Returns {status:'pending'} | {status:'completed', output} | {status:'failed', error}.
-export async function pollRun(config, runId, fetchImpl = fetch) {
+export async function pollRun(config, runId, fetchImpl = fetch, accept = acceptScenario) {
  const response = await fetchImpl(`${config.base}/api/v1/apps/${config.appId}/runs/${runId}`, { headers: authed(config) });
  if (!response.ok) throw await safeError(response);
  const run = await response.json();
  const status = String(run?.status ?? '').toLowerCase();
  if (status === 'failed' || status === 'cancelled') return { status: 'failed', error: `Run ${status}${run?.errorCode ? ' (' + run.errorCode + ')' : ''}` };
  if (status !== 'completed') return { status: 'pending' };
- const asScenario = text => { try { const v = JSON.parse(text); return v?.schema_version ? v : null } catch { return null } };
- const inline = typeof run?.result?.text === 'string' ? asScenario(run.result.text.trim()) : null;
+ const inline = typeof run?.result?.text === 'string' ? accept(run.result.text.trim()) : null;
  if (inline) return { status: 'completed', output: inline };
  const artifacts = Array.isArray(run?.result?.artifacts) ? run.result.artifacts : [];
- const json = artifacts.filter(a => typeof a?.url === 'string' && (a.type === 'application/json' || /\.json$/i.test(a.id || a.title || '')));
- for (const artifact of json.reverse()) { const parsed = asScenario(await downloadArtifact(config, artifact.url, fetchImpl)); if (parsed) return { status: 'completed', output: parsed } }
- return { status: 'failed', error: 'Run completed without a scenario JSON output' };
+ const usable = artifacts.filter(a => typeof a?.url === 'string' && (/json|markdown|plain/i.test(a.type || '') || /\.(json|md|txt)$/i.test(a.id || a.title || '')));
+ for (const artifact of usable.reverse()) { const parsed = accept(await downloadArtifact(config, artifact.url, fetchImpl)); if (parsed) return { status: 'completed', output: parsed } }
+ return { status: 'failed', error: 'Run completed without a usable output' };
 }
 
 // Checks the agent's own contract and maps ONLY caller lines, timing and briefing into this app's authoring form.

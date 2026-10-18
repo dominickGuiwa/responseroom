@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
-    "test": "node --test test.mjs http.test.mjs voice.test.mjs storage.test.mjs creao.test.mjs instructor.test.mjs participants.test.mjs sentry.test.mjs situations.test.mjs outcomes.test.mjs insights.test.mjs streetmap.test.mjs difficulty.test.mjs generate.test.mjs",
+    "test": "node --test test.mjs http.test.mjs voice.test.mjs storage.test.mjs creao.test.mjs instructor.test.mjs participants.test.mjs sentry.test.mjs situations.test.mjs outcomes.test.mjs insights.test.mjs streetmap.test.mjs difficulty.test.mjs generate.test.mjs pool.test.mjs",
     "check:secrets": "node scripts/check-secrets.mjs"
   },
   "engines": {

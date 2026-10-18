@@ -100,9 +100,20 @@ function startDemoLoop(){clearInterval(demoTimer);const steps=[['Caller','You'],
 const goals=()=>info?.goals||[];
 const firstName=n=>String(n||'').split(' ')[0];
 function goalsHtml(){return goals().length?`<section class="card goals-card" aria-labelledby="goals-title"><h2 id="goals-title">Your goals on every call</h2><ul class="goal-list">${goals().map(g=>`<li><strong>${esc(g.label)}</strong><span>${esc(g.target)}</span></li>`).join('')}</ul><p class="note">You see how you did after each call ends, never during it.</p></section>`:''}
+// Plain statement of where AI is used and where it is not. Shown to trainees before they start and to instructors on the dashboard.
+const AI_USES=['An AI agent (CREAO) writes new situations: the place, the caller’s words and the detail that changes. Each one is checked automatically before trainees see it, and an instructor can remove any of them.','Instructors can ask the agent for a first draft of feedback. A person always edits and approves it before a trainee sees it.'];
+const AI_NEVER=['give hints, suggested replies or warnings during a call','grade a trainee or rank trainees','tell Fire or EMS anything the trainee did not send','talk to the trainee during a call','use real emergency procedures'];
+function aiCard(forInstructor=false){return `<section class="card ai-card" aria-labelledby="ai-title"><h2 id="ai-title">${forInstructor?'AI in this app':'How this app uses AI'}</h2><ul class="ai-list">${AI_USES.map(t=>`<li>${esc(t)}</li>`).join('')}</ul><h3>What it never does</h3><ul class="ai-list never">${AI_NEVER.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>${forInstructor?'<p class="note">Feedback is released only by you, under your name.</p>':''}</section>`}
+// Welcome-page demo: a fictional call that is not in the rotation, replayed on the same map engine trainees use.
+const DEMO_SCENARIO={version:'welcome-demo',title:'Welcome demo',truth:{location:'Riverside Training Center, Mill Road',entrance:'North entrance'},units:{Fire:'Engine 1',EMS:'Medic 1'},keywords:{corrected:['north'],original:['east']},difficulty:{travel:{Fire:16,EMS:22}},map:{streets:{north:'Elm Street',main:'Mill Road',south:'Harbor Street',west:'First Avenue',center:'Center Avenue',east:'Ninth Avenue'},buildingLabel:'Training Center',original:'east',corrected:'north',place:['training center','mill road'],fire:{label:'Fire Station 1',km:1.2},ems:{label:'Medic 1 base (ambulance)',km:1.8},hospital:{label:'General Hospital',km:2.4}}};
+const demoMsg=(time,from,to,text)=>({kind:'message',time,data:{from,to,text}});
+const DEMO_EVENTS=[demoMsg(0,'Caller','Dispatcher','There’s smoke at the Training Center on Mill Road. I’m at the east entrance.'),{kind:'record',time:3000,data:{field:'location',value:'Riverside Training Center, Mill Road'}},demoMsg(7000,'Dispatcher','Fire','Smoke at the Training Center on Mill Road, east entrance'),demoMsg(12000,'Dispatcher','EMS','Training Center on Mill Road, possible injuries'),demoMsg(22000,'Caller','Dispatcher','Sorry, I’m at the north entrance, not the east.'),demoMsg(28000,'Dispatcher','Fire','Change that: go to the north entrance'),demoMsg(31000,'Dispatcher','EMS','North entrance, not east')];
+const DEMO_LOOP=72000;let demoTick=null;
+function startMapDemo(){clearInterval(demoTick);const spec=buildMap(DEMO_SCENARIO);const start=Date.now();let cycle=0,last=-1;const draw=()=>{const box=document.querySelector('#demo-map');if(!box)return clearInterval(demoTick);const t=(Date.now()-start)%DEMO_LOOP;if(t<last)cycle++;last=t;mountMap(box,spec,mapState(spec,DEMO_EVENTS,t),'demo-'+cycle);const cap=document.querySelector('#demo-caption');if(cap)cap.textContent=t<7000?'The caller reports the east entrance.':t<22000?'The dispatcher sends Fire and EMS to the east entrance.':t<28000?'The caller corrects it: north entrance.':t<45000?'The dispatcher relays the change; units re-route.':'Both units reach the north entrance.'};draw();demoTick=setInterval(draw,1000)}
 function welcome(){
+ clearInterval(demoTimer);
  const hasProgress=!!traineeName&&myRuns().length>0;
- app.innerHTML=header('<span class="chip">Training demo</span>')+`<main class="welcome">
+ app.innerHTML=header('<span class="chip">Training demo</span>')+`<main class="welcome hero-layout">
  <section class="card welcome-card">
   <p class="kicker">Dispatcher practice</p>
   <h1>Take the call. Keep the record. Send help.</h1>
@@ -111,16 +122,17 @@ function welcome(){
   ${hasProgress?`<p class="progress-link"><button class="link-btn" data-act="progress">See your progress, ${esc(firstName(traineeName))}</button></p>`:''}
   <p class="fineprint">Fictional training only. Nothing here is real emergency guidance.</p>
  </section>
- <div class="welcome-side">${goalsHtml()}
- <section class="how" aria-labelledby="how-title">
+ <section class="card hero-map" aria-labelledby="demo-title"><div class="card-head"><div><h2 id="demo-title">Watch a call unfold</h2><p class="card-sub" id="demo-caption">The caller reports the east entrance.</p></div><span class="chip">Demo</span></div><div id="demo-map"></div></section>
+ ${goalsHtml()}
+ ${aiCard(false)}
+ <section class="how card" aria-labelledby="how-title">
   <h2 id="how-title">How it works</h2>
-  <div class="card how-map">${agentMap({demo:true})}</div>
-  <ol class="steps"><li>You get a <strong>new situation</strong> each time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the incident record and message the caller, Fire or EMS.</li><li>The <strong>Fire and EMS agents</strong> act on exactly what you sent them.</li><li>When the call ends you see the <strong>outcome</strong>, and your instructor can add feedback.</li></ol>
- </section></div></main>
+  <ol class="steps"><li>You get a <strong>new situation</strong> each time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the incident record and message the caller, Fire or EMS.</li><li>The <strong>Fire and EMS agents</strong> act on exactly what you sent them, and the map shows it.</li><li>When the call ends you see the <strong>outcome</strong>, and your instructor can add feedback.</li></ol>
+ </section></main>
  <footer class="sitefoot"><a href="/instructor">Instructor dashboard</a></footer>`;
  document.querySelector('#start-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#trainee-name').value.trim();if(!name||busy)return;traineeName=name;store.set('rr-trainee-name',name);needName=false;shift=[];tabStore.set('rr-shift',shift);busy=true;try{await startSituation()}catch(e){error(e)}finally{busy=false}};
  if(!traineeName||needName)document.querySelector('#trainee-name').focus();
- startDemoLoop();
+ startMapDemo();
 }
 async function startSituation(){
  const created=await api('sessions',{name:traineeName,avoid:recent});
@@ -295,6 +307,7 @@ async function runsScreen(fetched){
   <section class="card"><h2>Goals${inst.filter?` for ${esc(inst.filter)}`:' across all trainees'}</h2>${goalBars(goalRates(runs,goals()))}</section>
  </div>
  <p class="note">Outcomes, goals and focus areas come from automatic checks of what each trainee sent and recorded. Use them to decide what to review, and confirm against the run before giving feedback.</p>
+ ${aiCard(true)}
  <section class="card"><h2>All runs</h2>${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Length</th><th>Outcome</th><th>Goals met</th><th>How it ended</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>`<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${outcomeCell(r)}</td><td>${goalsMetText(r)}</td><td>${r.status==='ended'?esc(END_REASON[r.observations.ended?.reason]||'Ended'):''}</td><td>${feedbackChip(r)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
  bindInstHeader();
  document.querySelector('#trainee-filter').onchange=e=>{inst.filter=e.target.value;runsScreen().catch(error)};
@@ -329,7 +342,8 @@ function traineeScreen(){
  document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
 }
 async function openRun(id){inst.runId=id;inst.scrub=null;inst.view='run';await loadRun()}
-async function loadRun(){inst.run=await api('sessions/'+inst.runId+'/review',null,adminKey);runScreen()}
+async function loadRun(){inst.run=await api('sessions/'+inst.runId+'/review',null,adminKey);inst.debrief=await api('sessions/'+inst.runId+'/debrief',null,adminKey).catch(()=>null);runScreen()}
+let debriefTimer=null;
 function describe(e,r){
  const t=(r.trainee||'Trainee').split(' ')[0],o=r.observations;
  switch(e.kind){
@@ -365,10 +379,13 @@ function observationsHtml(r){
  return `<section class="card observations-card"><h2>Automatic observations</h2><p class="note">Keyword checks of the log${k.corrected?` (looking for “${esc(k.corrected)}”)`:''}. Use them to find moments worth reviewing, and confirm against the timeline. They are not a grade.</p><ul class="checks">${items.join('')}</ul></section>`;
 }
 function feedbackHtml(r){
- const name=nameOf(r),first=name.split(' ')[0],last=r.reviews?.at(-1);
+ const name=nameOf(r),first=name.split(' ')[0],last=r.reviews?.at(-1),human=[...(r.reviews||[])].reverse().find(v=>v.reviewer!=='CREAO draft');
  if(r.status!=='ended')return `<section class="card"><h2>Feedback</h2><p class="muted">You can write feedback once this run ends.</p><div class="actions"><button class="secondary" id="end-run">End this run now</button></div></section>`;
- return `<section class="card"><h2>Feedback for ${esc(first)}</h2>${r.released?`<p class="status-line">Released to ${esc(first)}.</p>`:last?'<p class="status-line">Draft saved. Not released yet.</p>':''}
- <form id="feedback-form" class="feedback-form"><div><label for="reviewer">Your name</label><input id="reviewer" maxlength="100" required value="${esc(store.get('rr-reviewer','')||last?.reviewer||'')}"></div><div><label for="feedback">What should ${esc(first)} know?</label><textarea id="feedback" rows="6" maxlength="10000" required>${esc(last?.text||'')}</textarea></div>
+ const d=inst.debrief,pending=d?.debriefs?.find(x=>x.status==='pending'),ready=d?.debriefs?.find(x=>x.status==='ready'),failed=!pending&&d?.debriefs?.find(x=>x.status==='failed');
+ const draftLine=pending?'CREAO is drafting… usually under two minutes. You can keep working.':ready&&last?.reviewer==='CREAO draft'?`Drafted by CREAO (${esc(when(ready.created))}). It cites event numbers; check each one against the timeline, edit freely, then release under your name.`:failed?`CREAO could not draft this time: ${esc(failed.error||'unknown reason')}.`:'';
+ return `<section class="card"><h2>Feedback for ${esc(first)}</h2>${r.released?`<p class="status-line">Released to ${esc(first)}.</p>`:last?`<p class="status-line">${last.reviewer==='CREAO draft'?'AI draft saved. Not released.':'Draft saved. Not released yet.'}</p>`:''}
+ <div class="actions draft-row"><button type="button" class="secondary" id="draft-debrief" ${!d?.connected||pending?'disabled':''}>${pending?'Drafting…':'Draft with CREAO'}</button><span class="note" id="debrief-status">${draftLine||(d?.connected?'Optional: ask the Debrief Coach for a first draft that cites the timeline.':'Debrief drafting is not connected (CREAO_DEBRIEF_APP_ID and CREAO_DEBRIEF_API_KEY).')}</span></div>
+ <form id="feedback-form" class="feedback-form"><div><label for="reviewer">Your name</label><input id="reviewer" maxlength="100" required value="${esc(store.get('rr-reviewer','')||human?.reviewer||'')}"></div><div><label for="feedback">What should ${esc(first)} know?</label><textarea id="feedback" rows="7" maxlength="10000" required>${esc(last?.text||'')}</textarea></div>
  <label class="check"><input type="checkbox" id="verified" required aria-label="I checked this against the timeline"> I checked this against the timeline</label>
  <div class="actions"><button type="button" class="secondary" id="save-draft">Save draft</button><button class="primary">Release to ${esc(first)}</button></div></form>
  ${r.reviews?.length?`<ul class="versions">${r.reviews.map(v=>`<li>Version ${v.version}: ${v.released?'released':'draft'} by ${esc(v.reviewer)}, ${esc(when(v.created))}</li>`).join('')}</ul>`:''}</section>`;
@@ -389,6 +406,8 @@ function runScreen(){
  document.querySelector('#back-runs').onclick=()=>{inst.view='runs';inst.run=null;renderInstructor()};
  const scrub=document.querySelector('#scrub');scrub.oninput=()=>{const i=Number(scrub.value);inst.scrub=i>=evs.length-1?null:i;document.querySelectorAll('#timeline li').forEach(li=>li.classList.toggle('future',Number(li.dataset.i)>i));const t=time(evs[i]?.time||0);document.querySelector('#scrub-time').textContent=t;document.querySelector('#snap-time').textContent=t;document.querySelector('#snapshot').innerHTML=snapshotHtml(r,i)};
  const end=document.querySelector('#end-run');if(end)end.onclick=()=>confirmDialog(`End ${esc(nameOf(r))}’s run?`,'Their call will stop and the log will be frozen. This can’t be undone.','End run',async()=>{await api('sessions/'+r.id,{action:'end',data:{},key:crypto.randomUUID()},adminKey);await loadRun()});
+ const draftBtn=document.querySelector('#draft-debrief');if(draftBtn)draftBtn.onclick=async()=>{draftBtn.disabled=true;draftBtn.textContent='Asking CREAO…';try{await api('sessions/'+r.id+'/debrief',{action:'draft'},adminKey);await loadRun()}catch(e){error(e);await loadRun()}};
+ clearTimeout(debriefTimer);const pendingDraft=inst.debrief?.debriefs?.find(x=>x.status==='pending');if(pendingDraft)debriefTimer=setTimeout(async()=>{if(inst.view!=='run'||inst.runId!==r.id)return;await api('sessions/'+r.id+'/debrief',{action:'poll',run:pendingDraft.run},adminKey).catch(()=>{});const typing=document.activeElement?.matches?.('input,textarea');if(!typing){const y=scrollY;await loadRun();scrollTo(0,y)}else debriefTimer=setTimeout(()=>loadRun(),5000)},5000);
  const form=document.querySelector('#feedback-form');
  if(form){const save=async release=>{const reviewer=document.querySelector('#reviewer').value.trim();store.set('rr-reviewer',reviewer);try{await api('sessions/'+r.id+'/review',{release,reviewer,text:document.querySelector('#feedback').value,verified:document.querySelector('#verified').checked},adminKey);inst.runs=await api('sessions',null,adminKey).catch(()=>inst.runs);await loadRun();notify(release?`Feedback released to ${nameOf(r).split(' ')[0]}.`:'Draft saved. It stays private until you release it.')}catch(e){error(e)}};
   document.querySelector('#save-draft').onclick=()=>{if(!document.querySelector('#reviewer').value.trim()||!document.querySelector('#feedback').value.trim())return form.reportValidity();save(false)};form.onsubmit=e=>{e.preventDefault();save(true)}}
@@ -409,6 +428,7 @@ async function libraryScreen(){
  const genLine=g=>g.status==='pending'?'Generating with CREAO… usually 1–3 minutes. You can leave this page; it is added when ready.':g.status==='added'?`Added “${esc(titleOf(g)||'a new situation')}” to the rotation.`:g.status==='rejected'?`Couldn’t use CREAO’s result. ${esc(g.error||'')} Try again.`:esc(g.status);
  app.innerHTML=instHeader()+`<main class="dash"><h1>Situations</h1><p class="lead">Each trainee run gets one of these at random, skipping ones the trainee just had. Difficulty and caller timing are drawn fresh for every run.</p>
  <section class="card generate-card"><div class="card-head"><div><h2>Generate a new situation</h2><p class="card-sub">${creaoState.connected?'CREAO writes a situation unlike anything already in the rotation: a new place, a new incident and a new detail for the caller to correct. It is checked and added automatically. Demo only; remove it if it isn’t suitable.':'Not connected. Add CREAO_API_KEY (an app-scoped capi_ key from the agent page) to the .env file in the app folder, then restart the server.'}</p></div><button class="primary big" id="generate" ${!creaoState.connected||pending.length?'disabled':''}>${pending.length?'Generating…':'Generate with CREAO'}</button></div>
+  ${creaoState.pool?`<p class="note pool-status">${creaoState.pool.ready} CREAO-written situation${creaoState.pool.ready===1?'':'s'} ready for trainees · target ${creaoState.pool.target}${creaoState.pool.pending?' · one is being written now':''}${creaoState.pool.paused?' · '+esc(creaoState.pool.paused):''}. Built-in situations are used only when none of these is fresh for a trainee.</p>`:''}
   ${recent.length?`<ol class="gen-list" aria-live="polite">${recent.map(g=>`<li class="gen-${esc(g.status)}"><time>${esc(when(g.created))}</time><span>${genLine(g)}</span></li>`).join('')}</ol>`:''}</section>
  <section class="card"><h2>In rotation · ${inst.situations.length}</h2><ul class="situations">${inst.situations.map(s=>`<li><div class="row"><strong>${esc(s.title)}</strong><span class="chip">${s.builtIn?'Built in':s.generated?'Generated':'Added by you'}</span></div><details><summary>Show the call</summary><p><strong>Really happening:</strong> ${esc(s.truth.location)} · ${esc(s.truth.entrance)}</p><p><strong>Caller first says:</strong> “${esc(s.initialMessage)}”</p><p><strong>Later:</strong> “${esc(s.correctionMessage)}”</p>${s.builtIn?'':`<div class="actions"><button class="secondary" data-remove="${esc(s.id)}" data-title="${esc(s.title)}">Remove from rotation</button></div>`}</details></li>`).join('')}</ul></section>
  <details class="card advanced" id="advanced" ${inst.libraryOpen?'open':''}><summary>Write your own situation (optional)</summary><div class="advanced-body">

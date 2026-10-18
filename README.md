@@ -13,7 +13,7 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 ## What it does
 
 **Trainee (no setup, plain language, large text)**
-- Enter your name and start. Every run is a **new situation** from a rotating library of fictional calls (plus any the instructor approves), skipping ones you just had.
+- Enter your name and start. Every run is a **new situation written by a CREAO agent** (a pool is kept topped up in the background; eight built-in situations are the offline fallback), skipping ones you just had.
 - **Live aerial street map:** a fictional district with the incident building and every one of its entrances (or lanes, gates, units, elevators), the Fire station, the ambulance (Medic) base, a hospital and the dispatch center. Fire and the ambulance leave their stations only when you message them and go wherever you last told them; the caller’s marker sits where the caller said they are and moves when they correct it. The map focuses on the street once you save the location in your record.
 - **Popups:** nearest centers with distances at the start, then “Engine 4 leaving Station 4 for the east entrance · ETA 01:05”, re-routes and arrivals, all kept in an updates list under the map.
 - **Random timing:** every run is different. When the caller’s correction arrives, how many extra caller updates come, how fast units travel and the time limit all vary, so some calls are harder than others. The trainee is not told the level; only the time limit is visible.
@@ -35,7 +35,8 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - **Run detail:** the map at any replayed moment with the actual location marked, the outcome the trainee saw, a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
 - Author scenario versions: objective, attributed procedures, briefing, hidden truth, caller lines, readback reply templates, time limit.
 - Every save is an immutable draft; only an approved version can launch. Revisions link to their parent.
-- **Generate a new situation with one button.** CREAO writes a situation unlike anything in the rotation; the server checks it, builds the full situation (caller lines, hidden truth, keywords, units, map) and adds it to the rotation marked “Generated”. Any non-built-in situation can be removed with one click.
+- **CREAO writes the situations.** A small pool of generated situations is kept topped up automatically (with credit caps), and a single button asks for one more at any time. Each result is checked, built into a complete situation (caller lines, hidden truth, keywords, units, map) and must be unique against the rotation. Any non-built-in situation can be removed with one click.
+- **Draft feedback with CREAO.** On a finished run, “Draft with CREAO” sends the run’s evidence (timeline with event numbers, outcome, goals) to a second agent, the Debrief Coach. Its draft is saved as an unreleased “CREAO draft” version; the instructor edits it, confirms it against the timeline and releases it under their own name. Trainees never see an unreleased draft.
 - Exercises list; end a running exercise; replay any ended exercise with hidden truth, trainee record and participant knowledge side by side.
 - Write feedback as private drafts; release a version only after explicit verification. Review history is append-only.
 
@@ -55,10 +56,12 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 ## CREAO integration
 
 ResponseRoom calls the **ResponseRoom Scenario Builder** agent through CREAO's app-scoped API Trigger (`POST /api/v1/apps/{appId}/runs`, then poll the run).
-- **One button:** the server writes the brief itself, listing every situation already in the rotation (place, incident, wrong → right detail) as things to avoid, and asks for a new one. No procedures are sent, so every result stays DEMO ONLY.
+- **Situations:** the server writes the brief itself, listing every situation already in the rotation (place, incident, wrong → right detail) as things to avoid, and asks the Scenario Builder for a new one. A pool of generated situations is topped up in the background (one at a time, with a minimum interval, a daily cap and a pause after repeated refusals). No procedures are sent, so every result stays DEMO ONLY.
 - The agent returns a `response-room-scenario/1.0.0` JSON artifact. ResponseRoom validates it, derives the hidden truth from the agent's two-version fact (first report vs. correction), checks that the caller lines actually say those details, and refuses anything that self-approves, cites unsupplied sources or auto-sends dispatcher messages.
 - **Uniqueness is enforced:** a result is refused if it shares a title, a place, the same wrong → right pair, or a near-identical caller report with anything in the rotation. The instructor sees the reason and can press again.
 - Accepted situations join the rotation immediately, marked “Generated”, with a one-click remove. Rubrics, AI interpretations and participant replies are never imported. Keys never leave the server, and artifact downloads never forward the key to storage redirects.
+- **Debrief Coach:** a second agent (`CREAO_DEBRIEF_APP_ID` + `CREAO_DEBRIEF_API_KEY`) receives the finished run’s evidence and returns `{"draft", "citations"}`. The draft is stored as an unreleased review version and only a human can release feedback.
+- **Transparency:** the welcome page tells trainees where AI is used and lists what the app never does (no hints or warnings during a call, no AI grading, no messages to units the trainee didn’t send, no real procedures). The instructor dashboard shows the same note.
 
 ## Sentry monitoring
 
@@ -86,7 +89,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 82 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 86 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 

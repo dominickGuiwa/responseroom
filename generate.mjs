@@ -131,3 +131,29 @@ export function generateInputs(rotation) {
   difficulty: 'Standard', duration: 180,
  };
 }
+
+const mmss = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+// Evidence for the Debrief Coach: the run's log in plain words with event numbers, the outcome and the goal results.
+// The agent drafts; a human instructor edits and releases. Nothing here is shown to the trainee directly.
+export function debriefInputs({ session, events, observations: o, outcome: out, performance: p, goals }) {
+ const name = String(session.trainee || 'the trainee').split(' ')[0];
+ const who = e => e.data.from === 'Dispatcher' ? `${name} → ${e.data.to}` : e.data.from;
+ const lines = events.map(e => { const t = mmss(e.time); switch (e.kind) {
+  case 'message': return `#${e.seq} ${t} ${who(e)}: "${e.data.text}"`;
+  case 'ack': return `#${e.seq} ${t} ${e.data.from} replied: "${e.data.text}"`;
+  case 'record': return `#${e.seq} ${t} ${name} updated the record: ${e.data.field} = "${e.data.value}"`;
+  case 'ended': return `#${e.seq} ${t} Call ended (${e.data.reason || 'by the trainee'})`;
+  default: return `#${e.seq} ${t} ${e.kind}` } }).slice(0, 80);
+ const goalLines = goals.map(g => `${g.label}: ${p?.goals?.[g.id] === true ? 'met' : p?.goals?.[g.id] === false ? 'not met' : 'not applicable'}`);
+ const summary = [
+  `Situation: ${session.scenario?.title}. Difficulty: ${session.scenario?.difficulty?.label || 'n/a'}.`,
+  `What really happened: ${session.scenario?.truth?.location} · ${session.scenario?.truth?.entrance}.`,
+  `Outcome: ${out?.result || 'none'} — ${out?.headline || ''} ${(out?.lines || []).join(' ')}`.trim(),
+  `Rule: ${out?.rule || ''}`,
+  `Goals: ${goalLines.join('; ')}.`,
+  `First message to Fire or EMS: ${o?.firstUnitMessageAt == null ? 'none' : mmss(o.firstUnitMessageAt)}; caller correction at ${o?.correctionAt == null ? 'n/a' : mmss(o.correctionAt)}; relay to every unit sent: ${p?.metrics?.relayMs == null ? 'not completed' : mmss(p.metrics.relayMs) + ' after the correction'}.`,
+  'Timeline:', ...lines,
+  `Write feedback for ${name} in the second person, 90 to 160 words, specific and kind, citing event numbers like #12 for each claim. No scores, grades or rankings. No real emergency procedures. Return JSON: {"draft": "<text>", "citations": [event numbers]}.`,
+ ].join('\n');
+ return { trainee_first_name: name, run_summary: summary.slice(0, 12000) };
+}
