@@ -4,7 +4,11 @@
 
 > **DEMO ONLY.** Not approved for operational training. No real procedures, addresses or people are included, and nothing here is emergency guidance.
 
-![Trainee console](docs/screenshots/console.png)
+![Welcome page: the map is the hero](docs/screenshots/welcome.jpg)
+
+![Trainee console: map, conversation with push-to-talk, incident record with dictation](docs/screenshots/console.jpg)
+
+![Results take the whole page when a call ends](docs/screenshots/results.jpg)
 
 ## Why
 
@@ -42,7 +46,9 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - Exercises list; end a running exercise; replay any ended exercise with hidden truth, trainee record and participant knowledge side by side.
 - Write feedback as private drafts; release a version only after explicit verification. Review history is append-only.
 
-![Instructor setup](docs/screenshots/instructor-setup.png)
+![Instructor run view: timeline with Fire and EMS accents, replay, feedback](docs/screenshots/run.jpg)
+
+![Instructor Situations page: connected services, generation pool, rotation](docs/screenshots/situations.jpg)
 
 ## Design rules the code enforces
 
@@ -156,6 +162,14 @@ Local single-machine demo; Fire and EMS are scripted readbacks (the caller is co
 
 Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, ElevenLabs (text to speech and Scribe transcription), Sentry, browser speech synthesis as the fallback. Development was assisted by AI coding tools.
 
+## Pitch, demo and submission
+
+- `docs/PITCH.md` — the 2–3 minute pitch, with answers for likely judge questions.
+- `docs/DEMO-SCRIPT.md` — a timed 3-minute demo with a pre-flight checklist and what to do when something fails on stage.
+- `docs/SUBMISSION.md` — Devpost and GitHub checklist.
+- `docs/JUDGE-REVIEW.md` — a final self-review against the judging criteria and what was changed because of it.
+- `agents/caller-agent.md` — how the CREAO Caller agent is set up.
+
 ## License
 
-_Not yet chosen._
+MIT — see `LICENSE`.

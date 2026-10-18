@@ -528,3 +528,5 @@ details.ai-card[open]>summary{margin-bottom:8px}
 .svc{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--silver-300);border-radius:999px;padding:4px 12px;background:var(--surface)}
 .svc .dot{width:9px;height:9px;border-radius:50%;background:var(--silver-400);flex:none}
 .svc.on .dot{background:var(--navy-900)}
+/* Phones: the conversation keeps room to read even with the talk button and the typed box open */
+@media (max-width:600px){.convo{height:auto;min-height:0}.feed{min-height:240px;max-height:42vh}.composer{padding:12px 14px 12px}.ptt{min-height:60px;font-size:17px}}
