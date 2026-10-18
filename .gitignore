@@ -1,4 +1,10 @@
+# Secrets and local state: never commit
+.env
+.env.*
+!.env.example
 .instructor-key
 *.sqlite*
-.env
+# Internal development notes stay local
+HANDOFF.md
 node_modules/
+.DS_Store

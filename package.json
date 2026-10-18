@@ -3,10 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node server.mjs",
     "dev": "node server.mjs",
-    "test": "node --test test.mjs http.test.mjs voice.test.mjs storage.test.mjs creao.test.mjs instructor.test.mjs participants.test.mjs"
+    "test": "node --test test.mjs http.test.mjs voice.test.mjs storage.test.mjs creao.test.mjs instructor.test.mjs participants.test.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs"
   },
   "engines": {
     "node": ">=24"
-  }
+  },
+  "description": "ResponseRoom: a fictional, text-based dispatcher training simulator with instructor-approved scenarios and human-reviewed debriefs. DEMO ONLY."
 }
