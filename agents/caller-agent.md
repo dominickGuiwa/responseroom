@@ -48,9 +48,9 @@ Output JSON only, nothing else:
 ## What ResponseRoom does with the reply
 
 - Accepts `{"reply", "distress"}` or a plain spoken line; cuts the reply at 280 characters; clamps distress to 0–3.
-- Holds the scripted readback for `CREAO_CALLER_HOLD_MS` (default 30 s, 5–60 s) so the reply can take its place; the
+- Holds the scripted readback for `CREAO_CALLER_HOLD_MS` (default 45 s, 5–60 s) so the reply can take its place; the
   trainee sees “Caller is answering…” meanwhile. If the run is slower than that, the readback goes out and the late
-  reply is dropped. Measured on 2026-10-18: the Lite model answers in roughly 15–25 s.
+  reply is dropped. Measured on 2026-10-18 through the API Trigger: about 25 s from start to completed.
 - Refuses the reply and falls back to the readback when it coaches the trainee ("you should…"), names the corrected
   detail before the caller has actually said it, contains links, brackets or asterisks, or arrives after the call ended.
   Refusals are reported to Sentry with the reason.

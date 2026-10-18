@@ -26,14 +26,15 @@ export const acceptDebrief = text => {
 export function callerConfig(env = process.env) {
  const appId = env.CREAO_CALLER_APP_ID?.trim(), apiKey = env.CREAO_CALLER_API_KEY?.trim();
  if (!appId || !apiKey) return null;
- return { apiKey, appId, base: (env.CREAO_BASE_URL?.trim() || 'https://agent.creao.ai').replace(/\/$/, ''), holdMs: Math.min(60000, Math.max(5000, Number(env.CREAO_CALLER_HOLD_MS) || 30000)) };
+ return { apiKey, appId, base: (env.CREAO_BASE_URL?.trim() || 'https://agent.creao.ai').replace(/\/$/, ''), holdMs: Math.min(60000, Math.max(5000, Number(env.CREAO_CALLER_HOLD_MS) || 45000)) };
 }
-// Caller output: the JSON object {reply, distress 0–3}, on its own or embedded in the run's text or a markdown file.
-// Prose without that object is refused (a run summary is not a caller line), so the scripted readback is used instead.
+// Caller output: the JSON object {reply, distress 0–3}. The API Trigger returns it wrapped ({"response":"{…}"}, seen live
+// 2026-10-18), sometimes embedded in text or a markdown file; all of those are unwrapped. Prose without the object is
+// refused (a run summary is not a caller line), so the scripted readback is used instead.
 export const acceptCallerReply = text => {
  const t = String(text ?? '').trim(); let reply = '', distress = 1;
- const take = s => { try { const v = JSON.parse(s); if (v && typeof v.reply === 'string') { reply = v.reply; distress = v.distress; return true } } catch {} return false };
- if (!take(t)) { const m = t.match(/\{[^{}]*"reply"\s*:[^{}]*\}/); if (m) take(m[0]) }
+ const take = (s, depth = 0) => { if (depth > 3 || typeof s !== 'string') return false; try { const v = JSON.parse(s); if (v && typeof v === 'object') { if (typeof v.reply === 'string') { reply = v.reply; distress = v.distress; return true } for (const k of ['response', 'output', 'text', 'result', 'answer', 'content', 'message']) if (typeof v[k] === 'string' && take(v[k], depth + 1)) return true } } catch {} return false };
+ if (!take(t)) for (const candidate of [t, t.replace(/\\"/g, '"')]) { const m = candidate.match(/\{[^{}]*"reply"\s*:[^{}]*\}/); if (m && take(m[0])) break }
  reply = reply.replace(/^\s*caller\s*:\s*/i, '').replace(/\s+/g, ' ').trim();
  if (reply.length < 2) return null;
  const d = Math.round(Number(distress));

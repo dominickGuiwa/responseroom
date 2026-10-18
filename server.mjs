@@ -12,7 +12,7 @@ import {audioConfig,createAudio,inferDistress} from './audio.mjs';
 import {demoLines} from './public/demo.js';
 import {generateInputs,buildGenerated,tooSimilar,debriefInputs,callerInputs} from './generate.mjs';
 import {execFileSync} from 'node:child_process';
-export function createServer(engine,instructor,{creao=null,debrief=null,caller=null,audio=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,callerPollMs=2000,pool={}}={}){
+export function createServer(engine,instructor,{creao=null,debrief=null,caller=null,audio=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,callerPollMs=3000,pool={}}={}){
 const root=fileURLToPath(new URL('.',import.meta.url));
 // ElevenLabs voice (optional): reads lines already in a call's log and transcribes push-to-talk clips. The key stays here.
 const voice=audio?createAudio(audio,{fetchImpl,store:{get:k=>engine.audioGet(k),set:(k,v)=>engine.audioPut(k,v)}}):null;
