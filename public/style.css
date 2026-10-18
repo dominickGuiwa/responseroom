@@ -520,3 +520,5 @@ details.ai-card[open]>summary{margin-bottom:8px}
 .dictate[aria-pressed=true]{background:var(--navy-900);border-color:var(--navy-900);color:#fff}
 .dictate[aria-pressed=true] svg{animation:blink 1s ease-in-out infinite}
 #send-help strong{color:var(--navy-900);font-variant-numeric:tabular-nums}
+
+.typing{align-self:flex-start;color:var(--muted);font-size:16px;font-style:italic;padding:2px 6px;animation:blink 1.4s ease-in-out infinite}
