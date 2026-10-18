@@ -64,8 +64,12 @@ export function buildGenerated({ raw, imported, run, rotation = [] }) {
  const pair = detailPair(raw?.instructor_only?.hidden_truth);
  if (!pair) throw Error('CREAO did not give a before-and-after location detail (one hidden fact with two versions)');
  const f = imported.form;
- const corrected = pair.corrected.filter(w => mentions(f.correctionMessage, w)).slice(0, 3);
- const original = pair.original.filter(w => mentions(f.initialMessage, w)).slice(0, 3);
+ // Keywords: the labelled phrase first ("berth 9"), then distinctive words; bare numbers only when nothing else survives,
+ // so a stray digit elsewhere in a message cannot count as the corrected detail.
+ const phrase = (statement, text) => { const p = cut(afterColon(statement)).toLowerCase(); return p.length >= 2 && p.length <= 40 && mentions(text, p) ? [p] : [] };
+ const pickKeywords = (tokens, text, statement) => { const present = tokens.filter(w => mentions(text, w)); const words = present.filter(w => !/^\d+$/.test(w)); const list = [...new Set([...phrase(statement, text), ...words])].slice(0, 3); return list.length ? list : present.slice(0, 2) };
+ const corrected = pickKeywords(pair.corrected, f.correctionMessage, pair.corrStatement);
+ const original = pickKeywords(pair.original, f.initialMessage, pair.origStatement);
  if (!corrected.length) throw Error('The caller’s correction does not say the corrected detail named in the hidden truth');
  if (!original.length) throw Error('The caller’s first report does not say the original detail named in the hidden truth');
  if (mentionsAny(f.initialMessage, corrected)) throw Error('The caller’s first report already contains the corrected detail');
@@ -80,7 +84,7 @@ export function buildGenerated({ raw, imported, run, rotation = [] }) {
  const engine = pick('Engine', 30), medic = pick('Medic', 20);
  const km = (a, b) => Math.round((a + rng() * (b - a)) * 10) / 10;
  const kw = { corrected, original };
- const side = k => CARDINAL[k[0]] || null;
+ const side = ks => { for (const k of ks) for (const w of String(k).split(/\s+/)) if (CARDINAL[w]) return CARDINAL[w]; return null };
  let cSide = side(corrected) || 'north', oSide = side(original) || (cSide === 'south' ? 'east' : 'south');
  if (oSide === cSide) oSide = cSide === 'east' ? 'west' : 'east';
  const decoys = DECOYS[Object.keys(DECOYS).find(k => detail.includes(k))] || DECOYS.default;
@@ -116,7 +120,8 @@ export function tooSimilar(candidate, rotation) {
   const shared = content(s.truth?.location).filter(w => w.length >= 4 && cLoc.includes(w));
   if (shared.length) return `it uses the same place as “${s.title}” (${shared[0]})`;
   const sk = s.keywords || {}; const sc = [].concat(sk.corrected || []).map(lower), so = [].concat(sk.original || []).map(lower);
-  if (sc.length && so.length && ck.corrected.some(k => sc.includes(k)) && ck.original.some(k => so.includes(k))) return `it has the same correction (${ck.original[0]} → ${ck.corrected[0]}) as “${s.title}”`;
+  const cm = ck.corrected.find(k => sc.includes(k)), om = ck.original.find(k => so.includes(k));
+  if (sc.length && so.length && cm && om) return `it has the same correction (${om} → ${cm}) as “${s.title}”`;
   if (overlap(s.initialMessage, candidate.input.initialMessage) > 0.6) return `the caller’s report reads like “${s.title}”`;
  }
  return null;
