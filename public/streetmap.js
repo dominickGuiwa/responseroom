@@ -153,6 +153,33 @@ export function mapState(spec, events, elapsed) {
 // Zoom is done with the viewBox (not a CSS transform), so a fresh render is correct everywhere and the live view can animate it.
 const viewBoxFor = (spec, focused) => focused ? [spec.focus.x - W / spec.focus.zoom / 2, spec.focus.y - H / spec.focus.zoom / 2, W / spec.focus.zoom, H / spec.focus.zoom] : [0, 0, W, H];
 const vbString = vb => vb.map(n => Number(n.toFixed(1))).join(' ');
+// The person's own zoom and pan on top of the automatic focus: zoom 1–4×, pan as an offset in map units from the
+// zoomed box's centre. The box never leaves the district. Pure, so it is tested without a browser.
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+export const ZOOM = Object.freeze({ min: 1, max: 4, step: 1.4 });
+export function userViewBox(base, view) {
+ if (!view || (view.zoom <= 1 && !view.dx && !view.dy)) return base;
+ const [x, y, w, h] = base, zoom = clamp(view.zoom || 1, ZOOM.min, ZOOM.max), nw = w / zoom, nh = h / zoom;
+ return [clamp(x + (w - nw) / 2 + (view.dx || 0), 0, W - nw), clamp(y + (h - nh) / 2 + (view.dy || 0), 0, H - nh), nw, nh];
+}
+const ZOOM_CONTROLS = '<div class="map-zoom" role="group" aria-label="Map zoom"><button type="button" data-zoom="in" aria-label="Zoom in">+</button><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="reset" aria-label="Back to the automatic view">Reset</button></div>';
+// Wires the controls, the wheel, a mouse drag and a two-finger pinch to one container's view. Called once per container.
+function bindZoom(container) {
+ if (container._zoomBound) return; container._zoomBound = true;
+ const view = container._view = { zoom: 1, dx: 0, dy: 0 };
+ const svg = () => container.querySelector('svg.street-map');
+ const apply = () => { const s = svg(); if (!s || !container._base) return; if (s._vbAnim) { cancelAnimationFrame(s._vbAnim); s._vbAnim = null } s.setAttribute('viewBox', vbString(userViewBox(container._base, view))); container.classList.toggle('zoomed', view.zoom > 1.01); const r = container.querySelector('[data-zoom="reset"]'); if (r) r.hidden = view.zoom <= 1.01 && !view.dx && !view.dy };
+ const toWorld = (s, clientX, clientY) => { const m = s.getScreenCTM?.(); if (!m) return null; const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse()); return [p.x, p.y] };
+ // Zoom so that the map point under (clientX, clientY) stays put; without a point, zoom around the centre.
+ const zoomTo = (next, at) => { const s = svg(); if (!s) return; const before = userViewBox(container._base || [0, 0, W, H], view); view.zoom = clamp(next, ZOOM.min, ZOOM.max); if (view.zoom <= 1.001) { view.zoom = 1; view.dx = 0; view.dy = 0 } else if (at) { const [px, py] = at, fx = (px - before[0]) / before[2], fy = (py - before[1]) / before[3]; const base = container._base, nw = base[2] / view.zoom, nh = base[3] / view.zoom; view.dx = (px - fx * nw) - (base[0] + (base[2] - nw) / 2); view.dy = (py - fy * nh) - (base[1] + (base[3] - nh) / 2) } apply() };
+ container.addEventListener('click', e => { const b = e.target.closest('[data-zoom]'); if (!b) return; if (b.dataset.zoom === 'in') zoomTo(view.zoom * ZOOM.step); else if (b.dataset.zoom === 'out') zoomTo(view.zoom / ZOOM.step); else { view.zoom = 1; view.dx = 0; view.dy = 0; apply() } });
+ container.addEventListener('wheel', e => { const s = svg(); if (!s || !s.contains(e.target)) return; e.preventDefault(); const at = toWorld(s, e.clientX, e.clientY); zoomTo(view.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), at) }, { passive: false });
+ const pointers = new Map(); let pinch = null, drag = null;
+ container.addEventListener('pointerdown', e => { const s = svg(); if (!s || !s.contains(e.target)) return; pointers.set(e.pointerId, [e.clientX, e.clientY]); if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), zoom: view.zoom }; drag = null } else if (view.zoom > 1 && e.pointerType === 'mouse') { drag = { x: e.clientX, y: e.clientY, dx: view.dx, dy: view.dy }; s.setPointerCapture?.(e.pointerId) } });
+ container.addEventListener('pointermove', e => { if (!pointers.has(e.pointerId)) return; pointers.set(e.pointerId, [e.clientX, e.clientY]); const s = svg(); if (!s) return; if (pinch && pointers.size === 2) { const [a, b] = [...pointers.values()]; const mid = toWorld(s, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); zoomTo(pinch.zoom * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist, mid); return } if (drag) { const box = userViewBox(container._base || [0, 0, W, H], view), scale = box[2] / s.getBoundingClientRect().width; view.dx = drag.dx - (e.clientX - drag.x) * scale; view.dy = drag.dy - (e.clientY - drag.y) * scale; apply() } });
+ const lift = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) drag = null };
+ container.addEventListener('pointerup', lift); container.addEventListener('pointercancel', lift); container.addEventListener('pointerleave', lift);
+}
 function animateViewBox(svg, target) {
  const from = (svg.getAttribute('viewBox') || `0 0 ${W} ${H}`).split(/\s+/).map(Number);
  if (vbString(from) === vbString(target)) return;
@@ -191,16 +218,17 @@ const updatesHtml = state => [...state.notices].reverse().map(n => `<li><time>${
 const statusText = state => state.focused ? `Focused on ${state.focusLabel}.` : 'Showing the district. Save the incident location in your record to focus the map.';
 
 export function renderMap(spec, state, opts = {}) {
- return `<div class="map-wrap"><svg class="street-map${state.focused ? ' focused' : ''}${opts.live ? ' live' : ''}" viewBox="${vbString(viewBoxFor(spec, state.focused))}" data-layout="street" ${opts.live ? 'data-live' : ''} role="img" aria-label="Aerial map of the district with the caller, ${esc(state.units.Fire.name)} and ${esc(state.units.EMS.name)}"><g class="world">${base(spec, opts).replace('<g class="routes"></g><g class="movers"></g>', `<g class="routes">${routesHtml(state)}</g><g class="movers">${moversHtml(state)}</g>`)}</g></svg><div class="map-toasts" aria-hidden="true">${opts.live ? toastsHtml(state) : ''}</div></div><p class="map-status">${esc(statusText(state))}</p><ol class="map-updates" aria-label="Map updates">${updatesHtml(state)}</ol>`;
+ return `<div class="map-wrap"><svg class="street-map${state.focused ? ' focused' : ''}${opts.live ? ' live' : ''}" viewBox="${vbString(viewBoxFor(spec, state.focused))}" data-layout="street" ${opts.live ? 'data-live' : ''} role="img" aria-label="Aerial map of the district with the caller, ${esc(state.units.Fire.name)} and ${esc(state.units.EMS.name)}"><g class="world">${base(spec, opts).replace('<g class="routes"></g><g class="movers"></g>', `<g class="routes">${routesHtml(state)}</g><g class="movers">${moversHtml(state)}</g>`)}</g></svg><div class="map-toasts" aria-hidden="true">${opts.live ? toastsHtml(state) : ''}</div>${opts.live ? ZOOM_CONTROLS : ''}</div><p class="map-status">${esc(statusText(state))}</p><ol class="map-updates" aria-label="Map updates">${updatesHtml(state)}</ol>`;
 }
 
 // Live view: draw once per run, then patch positions so CSS transitions can animate the movement and the zoom.
 export function mountMap(container, spec, state, id) {
  if (!container) return;
- if (container.dataset.mapId !== id || !container.querySelector('svg')) { container.dataset.mapId = id; container.innerHTML = renderMap(spec, state, { live: true }); return }
+ if (container.dataset.mapId !== id || !container.querySelector('svg')) { container.dataset.mapId = id; container.innerHTML = renderMap(spec, state, { live: true }); container._base = viewBoxFor(spec, state.focused); bindZoom(container); if (container._view) { container._view.zoom = 1; container._view.dx = 0; container._view.dy = 0 } return }
  const svg = container.querySelector('svg');
  svg.classList.toggle('focused', state.focused);
- animateViewBox(svg, viewBoxFor(spec, state.focused));
+ container._base = viewBoxFor(spec, state.focused);
+ animateViewBox(svg, userViewBox(container._base, container._view));
  svg.querySelector('.routes').innerHTML = routesHtml(state);
  const caller = svg.querySelector('.marker.caller'); caller.style.transform = `translate(${(state.caller.x - 14).toFixed(1)}px,${(state.caller.y - 16).toFixed(1)}px)`;
  for (const [key, u] of Object.entries(state.units)) { const g = svg.querySelector(`.marker.unit.${key.toLowerCase()}`); g.style.transform = `translate(${u.x.toFixed(1)}px,${u.y.toFixed(1)}px)`; g.classList.remove('station', 'enroute', 'onscene'); g.classList.add(u.status); g.querySelector('.eta').textContent = etaText(u) }

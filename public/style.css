@@ -566,3 +566,14 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;bac
 @media print{body::before,body::after{display:none}}
 /* :root paints the paper; the body must stay transparent or it would cover the backdrop layers. */
 body{background:transparent}
+
+/* Map zoom: the person's own zoom and pan on top of the automatic focus */
+.street-map.live{touch-action:pan-y;cursor:default}
+.zoomed .street-map.live{cursor:grab}
+.zoomed .street-map.live:active{cursor:grabbing}
+.map-zoom{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.map-zoom button{min-height:36px;height:36px;min-width:36px;padding:0 10px;border-radius:8px;border:1.5px solid var(--silver-400);background:var(--surface);color:var(--navy-900);font-weight:800;font-size:18px;line-height:1;box-shadow:0 1px 0 rgba(11,21,38,.06)}
+.map-zoom button[data-zoom="reset"]{font-size:13px;font-weight:700;padding:0 10px}
+.map-zoom button:hover{border-color:var(--navy-700)}
+.hero-map .map-zoom{bottom:12px;right:12px}
+.street-map .marker{transition:transform 1s linear}

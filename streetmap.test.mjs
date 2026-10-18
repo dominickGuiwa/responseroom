@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {Engine} from './engine.mjs';import {createServer} from './server.mjs';import {SITUATIONS} from './situations.mjs';import {buildMap,sanitizeSpec,mapState,renderMap} from './public/streetmap.js';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {Engine} from './engine.mjs';import {createServer} from './server.mjs';import {SITUATIONS} from './situations.mjs';import {buildMap,sanitizeSpec,mapState,renderMap,userViewBox,ZOOM,W,H} from './public/streetmap.js';
 // The map is a pure function of the situation, the event log and the clock, so it is tested without a browser.
 const crash=SITUATIONS.find(s=>s.version==='demo-county-road-crash-1'),center=SITUATIONS.find(s=>s.version==='demo-community-center-1');
 const msg=(time,from,to,text)=>({kind:'message',time,data:{from,to,text}});
@@ -38,3 +38,8 @@ test('trainee payload carries the sanitized map and live state; difficulty is pi
  try{const s=(await call('sessions',{name:'Dana'})).data;assert.equal('difficulty' in s,false);assert.equal(JSON.stringify(s).includes('"level"'),false);assert.ok(s.map.spec.points.length>=3);assert.equal('corrected' in s.map.spec,false);assert.equal(JSON.stringify(s.map.spec).includes('keywords'),false);assert.equal(s.map.state.units.Fire.status,'station');assert.equal(s.map.state.notices[0].kind,'centers');
   const pinned=engine.get(s.id).scenario;assert.ok(['easy','standard','hard'].includes(pinned.difficulty.level));assert.ok(pinned.correctionAt>=25000&&pinned.correctionAt<=110000);assert.ok(pinned.extraCallerLines.every(l=>l.at>pinned.correctionAt));
   const list=(await call('sessions',null,'admin')).data;assert.equal(list[0].difficulty,pinned.difficulty.level)}finally{await new Promise(r=>server.close(r));engine.db.close()}});
+
+test('user zoom: on top of the automatic focus, clamped to 1–4× and to the district; reset returns the base',()=>{const base=[0,0,W,H];assert.deepEqual(userViewBox(base,null),base);assert.deepEqual(userViewBox(base,{zoom:1,dx:0,dy:0}),base);
+ const z2=userViewBox(base,{zoom:2,dx:0,dy:0});assert.deepEqual(z2,[W/4,H/4,W/2,H/2]);assert.deepEqual(userViewBox(base,{zoom:2,dx:-9999,dy:9999}),[0,H/2,W/2,H/2],'panning stops at the edge');assert.deepEqual(userViewBox(base,{zoom:99,dx:0,dy:0})[2],W/ZOOM.max,'zoom is capped');
+ const focused=[300,200,500,350];const f=userViewBox(focused,{zoom:2,dx:10,dy:-10});assert.deepEqual(f,[300+125+10,200+87.5-10,250,175]);
+ const live=renderMap(buildMap(SITUATIONS[0]),mapState(buildMap(SITUATIONS[0]),[],0),{live:true});assert.ok(live.includes('data-zoom="in"')&&live.includes('data-zoom="reset"'),'live maps carry zoom controls');assert.ok(!renderMap(buildMap(SITUATIONS[0]),mapState(buildMap(SITUATIONS[0]),[],0),{}).includes('data-zoom'),'static maps do not')});
