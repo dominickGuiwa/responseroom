@@ -1,4 +1,6 @@
 import {finished,goalRates,summarize,focusAreas,tasks,outcomeBadge,goalBars,columnChart,outcomeStrip,seconds} from '/insights.js';
+import {buildMap,mapState,mountMap,renderMap} from '/streetmap.js';
+const LEVEL_LABEL={easy:'Easy',standard:'Standard',hard:'Hard'};
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time=n=>`${String(Math.floor(n/60000)).padStart(2,'0')}:${String(Math.floor(n/1000)%60).padStart(2,'0')}`;
@@ -82,13 +84,14 @@ function pulse(svg,from,to){
  try{move.beginElement()}catch{}
  setTimeout(()=>dot.remove(),1000);
 }
+function pulseMarker(svg,name){const node=svg?.querySelector(`[data-node="${name}"]`);if(!node)return;node.classList.remove('speaking');void node.getBoundingClientRect();node.classList.add('speaking');setTimeout(()=>node.classList.remove('speaking'),1300)}
 let mapCursor={id:null,seq:0};
 function animateAgents(){
  const latest=session.events.at(-1)?.seq||0;
  if(mapCursor.id!==session.id)mapCursor={id:session.id,seq:session.elapsed<6000?0:latest};
  const fresh=session.events.filter(e=>e.seq>mapCursor.seq&&['message','ack'].includes(e.kind));
  mapCursor.seq=latest;
- fresh.slice(-4).forEach((e,i)=>setTimeout(()=>pulse(document.querySelector('.agent-map[data-live]'),e.data.from==='Dispatcher'?'You':e.data.from,e.data.to==='Dispatcher'?'You':e.data.to),i*380));
+ fresh.slice(-4).forEach((e,i)=>setTimeout(()=>{const from=e.data.from==='Dispatcher'?'You':e.data.from,to=e.data.to==='Dispatcher'?'You':e.data.to;pulse(document.querySelector('.agent-map[data-live]'),from,to);pulseMarker(document.querySelector('.street-map[data-live]'),from)},i*380));
 }
 let demoTimer=null;
 function startDemoLoop(){clearInterval(demoTimer);const steps=[['Caller','You'],['You','Fire'],['Fire','You'],['You','EMS'],['EMS','You']];let i=0;demoTimer=setInterval(()=>{const svg=document.querySelector('.agent-map[data-demo]');if(!svg)return clearInterval(demoTimer);pulse(svg,...steps[i++%steps.length])},1400)}
@@ -154,7 +157,7 @@ function endedCard(){
  const o=session.outcome,p=session.performance;
  const goalRows=goalChecks(p);
  return `<div class="ended-card"><section class="card outcome-card" role="status">
-  <div class="outcome-main"><p class="kicker">${esc(why)}</p>${o?outcomeBadge(o.result):''}<h2>${esc(o?.headline||'This call has ended.')}</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>
+  <div class="outcome-main"><p class="kicker">${session.difficulty?esc(session.difficulty.label)+' · ':''}${esc(why)}</p>${o?outcomeBadge(o.result):''}<h2>${esc(o?.headline||'This call has ended.')}</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>
   ${goalRows?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${goalRows}</ul></div>`:''}
   <div class="actions outcome-actions"><button class="secondary" data-act="end-session">End session</button><button class="primary" data-act="next">New situation</button></div></section></div>`;
 }
@@ -162,9 +165,10 @@ function consoleScreen(){
  lastMessages='';
  const isEnded=session.status==='ended',paused=session.status==='paused',locked=isEnded||paused;
  const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
- const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
+ const right=(session.difficulty?`<span class="chip level">${esc(session.difficulty.label)}</span>`:'')+(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
  const center=`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer" id="timer">${timerText()}</span></div>`;
- app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+(isEnded?endedCard():'')+`<main class="console">
+ app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+(isEnded?endedCard():'')+`<main class="console has-map">
+ <section class="card mapcard" aria-label="Map"><div class="card-head"><div><h2>Map</h2><p class="card-sub">Units go where you send them. Updates appear as they happen.</p></div></div><div id="street-map"></div></section>
  <section class="card convo" aria-label="Conversation">
   <div class="feed" id="messages" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
   <form id="composer" class="composer"><fieldset ${locked?'disabled':''}><legend>Send to</legend>
@@ -175,7 +179,6 @@ function consoleScreen(){
   </fieldset></form>
  </section>
  <aside class="side">
-  <section class="card"><h2>Who’s on this call</h2><p class="card-sub map-sub">Messages travel along these lines as they are sent.</p>${agentMap({live:true,layout:'wide'})}</section>
   <section class="card"><div class="card-head"><div><h2>Incident record</h2><p class="card-sub">Only you fill this in. <span id="record-status" role="status">${recordStatus()}</span></p></div><button class="secondary" id="save-record" form="record-form" ${locked?'disabled':''}>Save record</button></div>
    <form id="record-form"><fieldset class="record-form" ${locked?'disabled':''}>
     ${FIELDS.map(([k,label])=>`<div><label for="${k}">${label}</label>${k==='notes'?`<textarea id="${k}" rows="2">${esc(recordDrafts[k]??session.record[k])}</textarea>`:`<input id="${k}" autocomplete="off" value="${esc(recordDrafts[k]??session.record[k])}">`}</div>`).join('')}
@@ -208,7 +211,8 @@ function paintNextBar(){const bar=document.querySelector('#nextbar');if(!bar)ret
 // Screen readers hear only newly arrived external messages (neutral content, same as on screen), not the whole list on every poll.
 let announceCursor={id:null,seq:0};
 function announceNew(){const latest=session.events.at(-1)?.seq||0;if(announceCursor.id!==session.id){announceCursor={id:session.id,seq:latest};return}const fresh=session.events.filter(e=>e.seq>announceCursor.seq&&['message','ack'].includes(e.kind)&&['Caller','Fire','EMS'].includes(e.data.from));announceCursor.seq=latest;const el=document.querySelector('#announce');if(el&&fresh.length)el.textContent=fresh.map(e=>`${e.data.from}: ${e.data.text}`).join('. ')}
-let lastMessages='';function paintMessages(){processVoice();announceNew();animateAgents();paintNextBar();updateTimer();const el=document.querySelector('#messages');if(!el)return;
+function paintMap(){if(session?.map)mountMap(document.querySelector('#street-map'),session.map.spec,session.map.state,session.id)}
+let lastMessages='';function paintMessages(){processVoice();announceNew();animateAgents();paintNextBar();updateTimer();paintMap();const el=document.querySelector('#messages');if(!el)return;
  const replied=new Set(session.events.filter(e=>e.kind==='ack').map(e=>e.data.messageId));
  const bubble=(cls,who,e,extra='')=>`<article class="bubble ${cls}"><div class="who"><span>${esc(who)}</span><time>${time(e.time)}</time></div><p>${esc(e.data.text)}</p>${extra}</article>`;
  const html=(Date.now()<incomingUntil?'<div class="incoming">New call · the caller is on the line</div>':'')+session.events.filter(e=>['message','ack'].includes(e.kind)).map(e=>e.kind==='ack'?bubble('unit',e.data.from,e):e.data.from==='Dispatcher'?bubble('mine',`You → ${e.data.to}`,e,`<p class="status">Delivered${replied.has(e.data.id)?` · ${esc(e.data.to)} replied`:''}</p>`):bubble('caller','Caller',e)).join('');
@@ -228,7 +232,7 @@ async function action(action,data={}){
 function ended(){consoleScreen()}
 async function summaryScreen(){return progressScreen(true)}
 const tile=(num,label)=>`<div class="stat"><span class="num">${num}</span><span class="lbl">${label}</span></div>`;
-function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
+function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}${v.difficulty?` <span class="chip level">${esc(v.difficulty.label)}</span>`:''}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
 // Progress across every call this device has run under this name: focus areas, goal rates and tasks.
 function progressHtml(runs){
  const done=finished(runs);
@@ -291,7 +295,7 @@ async function runsScreen(fetched){
   <section class="card"><h2>Goals${inst.filter?` for ${esc(inst.filter)}`:' across all trainees'}</h2>${goalBars(goalRates(runs,goals()))}</section>
  </div>
  <p class="note">Outcomes, goals and focus areas come from automatic checks of what each trainee sent and recorded. Use them to decide what to review, and confirm against the run before giving feedback.</p>
- <section class="card"><h2>All runs</h2>${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Started</th><th>Length</th><th>Outcome</th><th>Goals met</th><th>How it ended</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>`<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${outcomeCell(r)}</td><td>${goalsMetText(r)}</td><td>${r.status==='ended'?esc(END_REASON[r.observations.ended?.reason]||'Ended'):''}</td><td>${feedbackChip(r)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
+ <section class="card"><h2>All runs</h2>${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Length</th><th>Outcome</th><th>Goals met</th><th>How it ended</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>`<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${outcomeCell(r)}</td><td>${goalsMetText(r)}</td><td>${r.status==='ended'?esc(END_REASON[r.observations.ended?.reason]||'Ended'):''}</td><td>${feedbackChip(r)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
  bindInstHeader();
  document.querySelector('#trainee-filter').onchange=e=>{inst.filter=e.target.value;runsScreen().catch(error)};
  document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
@@ -309,7 +313,7 @@ function traineeScreen(){
  app.innerHTML=instHeader()+`<main class="dash">
  <button class="back" id="back-runs">← All runs</button>
  <div class="run-head"><div><p class="kicker">Trainee</p><h1>${esc(name)}</h1><p class="lead">${s.calls} finished call${s.calls===1?'':'s'}${mine.some(r=>r.status!=='ended')?', and one running now':''}.</p></div></div>
- <section class="stats" aria-label="Summary">${tile(s.calls,'calls finished')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}${tile(seconds(s.medianRelay),'typical time to relay a change')}</section>
+ <section class="stats" aria-label="Summary">${tile(s.calls,'calls finished')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}${tile(seconds(s.medianRelay),'typical time to relay a change')}${['easy','standard','hard'].map(l=>{const judged=done.filter(r=>r.difficulty===l&&r.outcome.result!=='incomplete');return judged.length?tile(`${judged.filter(r=>r.outcome.result==='success').length} of ${judged.length}`,`${LEVEL_LABEL[l]} calls succeeded`):''}).join('')}</section>
  <div class="dash-grid">
   <section class="card"><h2>Practice next</h2>${f.focus.length?`<ul class="focus-list">${f.focus.map(x=>`<li><strong>${esc(x.label)}</strong><p>${esc(x.text)}</p></li>`).join('')}</ul>`:`<p class="muted">${esc(f.note)}</p>`}${f.strengths.length?`<h3 class="sub">Going well</h3><ul class="strength-list">${f.strengths.map(x=>`<li><span class="glyph" aria-hidden="true">✓</span><span><strong>${esc(x.label)}</strong> <span class="muted">${esc(x.text)}</span></span></li>`).join('')}</ul>`:''}</section>
   <section class="card"><h2>Goals</h2>${goalBars(goalRates(mine,goals()))}</section>
@@ -319,7 +323,7 @@ function traineeScreen(){
   <section class="card chart-card"><h2>Time to first Fire or EMS message</h2><p class="card-sub">Seconds from the start of each call. The line is the 30 second goal.</p>${recent.length?firstChart:'<p class="empty">No finished calls yet.</p>'}</section>
   <section class="card chart-card"><h2>Time to relay the caller’s change</h2><p class="card-sub">Seconds from the caller’s correction until every unit sent had it. An × means it never reached every unit.</p>${relayRuns.length?relayChart:'<p class="empty">No calls reached the caller’s correction yet.</p>'}</section>
  </div>
- <section class="card"><h2>Calls</h2><p class="card-sub">The numbers behind the graphs. Open a call to see its full timeline.</p>${done.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>Situation</th><th>Started</th><th>Outcome</th><th>First dispatch</th><th>Relay time</th><th>Record correct</th><th>Right place</th></tr></thead><tbody>${done.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<tr data-run="${esc(r.id)}"><td>${i+1}</td><td><button class="link-btn" data-open="${esc(r.id)}">${esc(r.title)}</button></td><td>${esc(when(r.created))}</td><td>${outcomeBadge(r.outcome.result)}</td><td>${seconds(r.performance.metrics.firstDispatchMs)}</td><td>${r.performance.metrics.correctionHeard?seconds(r.performance.metrics.relayMs):'n/a'}</td><td>${cell(r.performance.goals.accurateRecord)}</td><td>${cell(r.performance.goals.rightPlace)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No finished calls yet.</p>'}</section></main>`;
+ <section class="card"><h2>Calls</h2><p class="card-sub">The numbers behind the graphs. Open a call to see its full timeline.</p>${done.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Outcome</th><th>First dispatch</th><th>Relay time</th><th>Record correct</th><th>Right place</th></tr></thead><tbody>${done.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<tr data-run="${esc(r.id)}"><td>${i+1}</td><td><button class="link-btn" data-open="${esc(r.id)}">${esc(r.title)}</button></td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${outcomeBadge(r.outcome.result)}</td><td>${seconds(r.performance.metrics.firstDispatchMs)}</td><td>${r.performance.metrics.correctionHeard?seconds(r.performance.metrics.relayMs):'n/a'}</td><td>${cell(r.performance.goals.accurateRecord)}</td><td>${cell(r.performance.goals.rightPlace)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No finished calls yet.</p>'}</section></main>`;
  bindInstHeader();
  document.querySelector('#back-runs').onclick=()=>{inst.view='runs';renderInstructor()};
  document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
@@ -339,11 +343,13 @@ function describe(e,r){
   default:return {who:e.kind,cls:'sys'};
  }
 }
+// Instructor replay: the map at that moment, with the actual location marked.
+function replayMap(r,t){try{const spec=buildMap(r.scenario);return `<div class="replay-map">${renderMap(spec,mapState(spec,r.events,t),{instructor:true})}</div>`}catch{return ''}}
 function snapshotHtml(r,idx){
  const evs=r.events.slice(0,idx+1),rec={location:'',entrance:'',caller:'',notes:''},told={Fire:[],EMS:[]},counts={},add=k=>counts[k]=(counts[k]||0)+1;
  for(const e of evs){if(e.kind==='record')rec[e.data.field]=e.data.value;if(e.kind==='message'){if(e.data.from==='Dispatcher'){told[e.data.to]?.push(e.data.text);add('You>'+e.data.to)}else add(e.data.from+'>You')}if(e.kind==='ack')add(e.data.from+'>You')}
  const list=a=>a.length?`<ul>${a.map(x=>`<li>“${esc(x)}”</li>`).join('')}</ul>`:'<p class="muted">Nothing yet.</p>';
- return `${agentMap({counts})}<table class="compare"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">What really happened</th><th scope="col">Trainee’s record</th></tr></thead><tbody><tr><th scope="row">Location</th><td>${esc(r.scenario.truth.location)}</td><td>${esc(rec.location)||'—'}</td></tr><tr><th scope="row">Entrance, unit or side</th><td>${esc(r.scenario.truth.entrance)}</td><td>${esc(rec.entrance)||'—'}</td></tr>${rec.caller?`<tr><th scope="row">Caller</th><td></td><td>${esc(rec.caller)}</td></tr>`:''}${rec.notes?`<tr><th scope="row">Notes</th><td></td><td>${esc(rec.notes)}</td></tr>`:''}</tbody></table><div class="knows"><h3>Fire has been sent</h3>${list(told.Fire)}<h3>EMS has been sent</h3>${list(told.EMS)}</div>`;
+ return `${replayMap(r,evs.at(-1)?.time||0)}${agentMap({counts})}<table class="compare"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">What really happened</th><th scope="col">Trainee’s record</th></tr></thead><tbody><tr><th scope="row">Location</th><td>${esc(r.scenario.truth.location)}</td><td>${esc(rec.location)||'—'}</td></tr><tr><th scope="row">Entrance, unit or side</th><td>${esc(r.scenario.truth.entrance)}</td><td>${esc(rec.entrance)||'—'}</td></tr>${rec.caller?`<tr><th scope="row">Caller</th><td></td><td>${esc(rec.caller)}</td></tr>`:''}${rec.notes?`<tr><th scope="row">Notes</th><td></td><td>${esc(rec.notes)}</td></tr>`:''}</tbody></table><div class="knows"><h3>Fire has been sent</h3>${list(told.Fire)}<h3>EMS has been sent</h3>${list(told.EMS)}</div>`;
 }
 function outcomeHtml(r){const o=r.outcome;if(r.status!=='ended'||!o)return '';const first=nameOf(r).split(' ')[0];const checks=goalChecks(r.performance);return `<section class="card outcome-card instructor-outcome"><div class="outcome-main"><p class="kicker">Outcome ${esc(first)} saw</p>${outcomeBadge(o.result)}<h2>${esc(o.headline)}</h2>${o.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>${checks?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${checks}</ul></div>`:''}</section>`}
 function observationsHtml(r){
@@ -372,7 +378,7 @@ function runScreen(){
  const idx=inst.scrub===null||inst.scrub>=evs.length-1?evs.length-1:inst.scrub;
  app.innerHTML=instHeader()+`<main class="dash">
  <button class="back" id="back-runs">← All runs</button>
- <div class="run-head"><div><p class="kicker">${live?'Live now':'Finished'}${summary?.created?' · '+esc(when(summary.created)):''}</p><h1>${esc(nameOf(r))} · ${esc(r.title||'Situation')}</h1><p class="lead">${live?`Running for ${time(r.elapsed)}.`:`${time(r.elapsed)} long. ${esc(END_REASON[r.observations.ended?.reason]||'Ended')}.`}</p></div></div>
+ <div class="run-head"><div><p class="kicker">${live?'Live now':'Finished'}${summary?.created?' · '+esc(when(summary.created)):''}${r.scenario?.difficulty?.label?' · '+esc(r.scenario.difficulty.label):''}</p><h1>${esc(nameOf(r))} · ${esc(r.title||'Situation')}</h1><p class="lead">${live?`Running for ${time(r.elapsed)}.`:`${time(r.elapsed)} long. ${esc(END_REASON[r.observations.ended?.reason]||'Ended')}.`}</p></div></div>
  ${outcomeHtml(r)}${observationsHtml(r)}
  <div class="run-grid">
   <section class="card"><h2>What happened</h2><div class="scrub"><label for="scrub">Replay up to a moment</label><input type="range" id="scrub" min="0" max="${evs.length-1}" value="${idx}"><output id="scrub-time" for="scrub">${time(evs[idx]?.time||0)}</output></div>

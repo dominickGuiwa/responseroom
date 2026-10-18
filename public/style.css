@@ -354,3 +354,59 @@ tr[data-trainee]{cursor:pointer}
  .ended-card .outcome-card,.instructor-outcome,.progress-grid,.dash-grid{grid-template-columns:1fr}
 }
 @media (max-width:600px){.stats{grid-template-columns:1fr 1fr;gap:12px}.stat{padding:14px 16px}.stat .num{font-size:28px}.stat .lbl{font-size:15px}}
+
+/* Street map and three-column console */
+.console.has-map{grid-template-columns:minmax(300px,.9fr) minmax(0,1.3fr) minmax(300px,.9fr);grid-template-areas:"map convo side"}
+.mapcard{grid-area:map;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.convo{grid-area:convo}
+.side{grid-area:side}
+.map-wrap{position:relative}
+.street-map{width:100%;height:auto;display:block;background:#E6EAEF;border-radius:10px;overflow:hidden}
+.street-map .ground{fill:#E6EAEF}
+.street-map .lot{fill:#D7DCE4}
+.street-map .road{stroke:#F7F8FA;stroke-linecap:square}
+.street-map .lane-divider{stroke:#C9CED6;stroke-width:2;stroke-dasharray:14 10}
+.street-map .lane-label{font-size:13px;font-weight:650;fill:var(--muted)}
+.street-map .street-name{font-size:19px;fill:var(--muted);font-weight:650}
+.street-map .incident{fill:#fff;stroke:var(--navy-900);stroke-width:3}
+.street-map .building-label{font-size:16px;font-weight:700;fill:var(--navy-900)}
+.street-map .mile-marker{fill:var(--navy-900)}
+.street-map .poi circle{fill:#fff;stroke:var(--navy-700);stroke-width:2.5}
+.street-map .fine{font-size:14px;font-weight:650;fill:var(--ink-2);opacity:0;transition:opacity .4s}
+.street-map.focused .fine,.street-map .truth-label{opacity:1}
+.street-map .place rect{fill:#fff;stroke:var(--silver-400);stroke-width:2}
+.street-map .place.fire rect,.street-map .place.ems rect,.street-map .place.dispatch rect{stroke:var(--navy-900)}
+.street-map .place-letter{font-size:16px;font-weight:800;fill:var(--navy-900)}
+.street-map .place-label{font-size:16px;font-weight:650;fill:var(--ink-2)}
+.street-map .route{fill:none;stroke:var(--navy-700);stroke-width:4;stroke-dasharray:10 8;stroke-linecap:round}
+.street-map .marker{transition:transform 1s linear}
+.street-map .marker .body{fill:var(--navy-900);stroke:#fff;stroke-width:3}
+.street-map .marker.unit.station .body{fill:var(--navy-500)}
+.street-map .marker.caller .body{fill:#fff;stroke:var(--navy-900)}
+.street-map .marker .letter{font-size:15px;font-weight:800;fill:#fff}
+.street-map .marker.caller .letter{fill:var(--navy-900)}
+.street-map .marker .tag{font-size:13px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:#E6EAEF;stroke-width:5px}
+.street-map .marker .eta{font-size:12px;font-weight:750;fill:var(--navy-700);paint-order:stroke;stroke:#E6EAEF;stroke-width:5px}
+.street-map .ring{fill:none;stroke:var(--navy-500);stroke-width:4;opacity:0}
+.street-map .speaking .ring{animation:ripple 1.2s ease-out}
+.street-map .truth circle{fill:none;stroke:var(--ink);stroke-width:3;stroke-dasharray:6 5}
+.map-toasts{position:absolute;top:10px;right:10px;left:22%;display:grid;gap:6px;pointer-events:none}
+.toast{background:var(--navy-950);color:#fff;border-radius:10px;padding:7px 11px;font-size:14px;line-height:1.35;display:flex;gap:10px;animation:rise .35s ease-out}
+.toast time{color:#A3ABB8;font-variant-numeric:tabular-nums;flex:none}
+.map-status{margin:10px 0 6px;font-size:15px;color:var(--muted)}
+.map-updates{list-style:none;margin:0;padding:0;font-size:15px;overflow:auto;min-height:60px;max-height:200px}
+.mapcard .map-updates{flex:1}
+.map-updates li{display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--silver-200)}
+.map-updates time{color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.replay-map{margin-bottom:16px}
+.replay-map .map-updates{max-height:140px}
+.chip.level{border-color:var(--navy-900);color:var(--navy-900)}
+.topbar .chip.level{color:#fff;border-color:#8D9AB2}
+@media (max-width:1280px){
+ .console.has-map{grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);grid-template-areas:"convo map" "convo side";grid-template-rows:auto minmax(0,1fr)}
+ .mapcard{overflow:visible}
+ .map-updates{max-height:140px}
+}
+@media (max-width:1000px){
+ .console.has-map{grid-template-columns:1fr;grid-template-areas:"convo" "map" "side"}
+}

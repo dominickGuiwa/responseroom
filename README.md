@@ -14,7 +14,9 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 
 **Trainee (no setup, plain language, large text)**
 - Enter your name and start. Every run is a **new situation** from a rotating library of fictional calls (plus any the instructor approves), skipping ones you just had.
-- A live map shows the caller, Fire and EMS **agents**, with each message travelling between them as it is sent.
+- **Live aerial street map:** a fictional district with the incident building and every one of its entrances (or lanes, gates, units, elevators), the Fire station, the ambulance (Medic) base, a hospital and the dispatch center. Fire and the ambulance leave their stations only when you message them and go wherever you last told them; the caller’s marker sits where the caller said they are and moves when they correct it. The map focuses on the street once you save the location in your record.
+- **Popups:** nearest centers with distances at the start, then “Engine 4 leaving Station 4 for the east entrance · ETA 01:05”, re-routes and arrivals, all kept in an updates list under the map.
+- **Random difficulty and timing:** each run draws Easy, Standard or Hard, which sets when the caller’s correction arrives, how many extra caller updates come, how fast units travel and the time limit. On Hard, units can reach the wrong place before the correction, so you have to re-route them.
 - **Outcomes, judged after the call ends:** each unit acts on the last thing it was told. Success means every unit you sent ended up with the corrected detail and your record shows it; failure comes with plain reasons (“Medic 4 went to the eastbound lanes, the wrong place. The last thing they were told was…”). Nothing is judged or hinted during the call.
 - **Goals and tasks:** four goals shown up front (quick first dispatch, relay changes fast, accurate record, right place) with per-call results, plus milestones like “three successes in a row”. A progress page shows success rate, goal rates against their aims, what to practice next and what is going well.
 - After you have sent something, **Finish call**, **New situation** and **End session** are always one click away.
@@ -29,7 +31,7 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 **Instructor (dashboard first, setup optional)**
 - **Runs dashboard:** every trainee run with status, length and automatic observations (was the caller’s correction recorded, and relayed to Fire and EMS?). Filter by trainee. These are keyword checks to guide review, not grades.
 - **Trainee profiles with performance graphs:** outcome of each call, seconds to first dispatch and seconds to relay a change (each against its goal line), goal rates, and focus areas with the evidence behind them (“EMS missed the change in 2 of 3 calls”). Automatic keyword checks, shown as such, never a grade.
-- **Run detail:** the outcome the trainee saw, a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
+- **Run detail:** the map at any replayed moment with the actual location marked, the outcome the trainee saw, a plain-language timeline (no JSON), replay slider, “what really happened vs. the trainee’s record”, an agent map weighted by message volume, and feedback you release when ready. Live runs can be watched or ended.
 - Author scenario versions: objective, attributed procedures, briefing, hidden truth, caller lines, readback reply templates, time limit.
 - Every save is an immutable draft; only an approved version can launch. Revisions link to their parent.
 - Generate a draft with **CREAO** (below). Output is checked, then loaded into the instructor's form, never auto-saved or auto-approved.
@@ -83,7 +85,7 @@ Open http://127.0.0.1:4173.
 ## Tests
 
 ```bash
-npm test               # 64 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 75 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
@@ -99,6 +101,11 @@ npm run check:secrets  # fails if secrets/local state are tracked or appear anyw
 server.mjs      HTTP routes, auth, static files
 engine.mjs      exercise state, event log, scenarios, reviews, CREAO generations (SQLite)
 creao.mjs       CREAO API adapter and output validation
+situations.mjs  built-in fictional situations with map params
+difficulty.mjs  random difficulty and caller timing per run
+observations.mjs outcomes, goals, metrics and instructor observations
+public/streetmap.js shared aerial map: geometry, unit movement, popups, rendering
+public/insights.js  progress charts, goal rates, focus areas
 sentry.mjs      minimal Sentry envelope reporter (errors, transactions, scrubbing)
 public/         vanilla JS/CSS client (trainee console + instructor UI)
 *.test.mjs      node:test suites

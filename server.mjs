@@ -7,6 +7,7 @@ import {creaoConfig,startRun,pollRun,validateRequest,importScenario} from './cre
 import {noopSentry,sentryFromEnv,routeTemplate} from './sentry.mjs';
 import {SITUATIONS,pickSituation} from './situations.mjs';
 import {observe,GOALS} from './observations.mjs';
+import {applyDifficulty} from './difficulty.mjs';
 import {execFileSync} from 'node:child_process';
 export function createServer(engine,instructor,{creao=null,fetchImpl=fetch,sentry=noopSentry}={}){
 const root=fileURLToPath(new URL('.',import.meta.url));
@@ -20,7 +21,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  const tx=traced?sentry.startTransaction(`${req.method} ${route}`,'http.server'):noopSentry.startTransaction();
  res.on('finish',()=>{tx.setTag('http.status_code',res.statusCode);tx.finish(res.statusCode>=500?'internal_error':res.statusCode>=400?'invalid_argument':'ok')});
  try{if(req.method==='POST'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected'});
- if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/insights.js':'insights.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
+ if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/insights.js':'insights.js','/streetmap.js':'streetmap.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
  let body={};if(req.method==='POST'){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>20000)return send(413,{error:'Request too large'})}try{body=JSON.parse(raw||'{}')}catch{return send(400,{error:'Request body is not valid JSON'})}}
  if(url.pathname==='/api/client-error'&&req.method==='POST'){const minute=Math.floor(Date.now()/60000);if(clientErrors.minute!==minute)clientErrors={minute,count:0};if(typeof body.message==='string'&&++clientErrors.count<=20)sentry.captureException({name:'BrowserError',message:body.message,stack:typeof body.stack==='string'?body.stack:''},{tags:{source:'browser',page:routeTemplate(String(body.path||''))}});res.writeHead(204);return res.end()}
  if(url.pathname==='/api/scenarios'){
@@ -51,7 +52,8 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,goals:GOALS,creao:creao?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected'});
  if(url.pathname==='/api/sessions'&&req.method==='GET'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,engine.sessionsSummary())}
  // Each new run gets a different situation: built-in demo situations plus instructor-approved scenarios, avoiding recent ones.
- if(url.pathname==='/api/sessions'&&req.method==='POST'){const name=typeof body.name==='string'?body.name.trim():'';if(name.length>60)return send(400,{error:'Please use a name of 60 characters or fewer.'});const pool=[...SITUATIONS,...engine.scenarios().filter(x=>x.approved)];const picked=pickSituation(pool,Array.isArray(body.avoid)?body.avoid:[]);const s=engine.create(structuredClone(picked),{trainee:name||null});return send(201,{...engine.public(s),token:s.token})}
+ if(url.pathname==='/api/sessions'&&req.method==='POST'){const name=typeof body.name==='string'?body.name.trim():'';if(name.length>60)return send(400,{error:'Please use a name of 60 characters or fewer.'});const pool=[...SITUATIONS,...engine.scenarios().filter(x=>x.approved)];// Difficulty and caller timing are drawn now and pinned to this run.
+ const picked=applyDifficulty(structuredClone(pickSituation(pool,Array.isArray(body.avoid)?body.avoid:[])));const s=engine.create(picked,{trainee:name||null});return send(201,{...engine.public(s),token:s.token})}
  // Instructor view of the rotation: what trainees can be given, with hidden truth for reference.
  if(url.pathname==='/api/situations'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,[...SITUATIONS,...engine.scenarios().filter(x=>x.approved)].map(x=>({version:x.version,title:x.title,builtIn:!!x.builtIn,truth:x.truth,initialMessage:x.initialMessage,correctionMessage:x.correctionMessage,correctionAt:x.correctionAt,endAt:x.endAt??null})))}
  const match=url.pathname.match(/^\/api\/sessions\/([\w-]+)(?:\/(\w+))?$/);if(!match)return send(404,{error:'Not found'});let s=engine.get(match[1]);if(!s)return send(404,{error:'Not found'});

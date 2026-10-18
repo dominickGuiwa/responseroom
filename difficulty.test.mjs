@@ -1,0 +1,11 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {applyDifficulty,LEVELS,FILLERS,pickLevel} from './difficulty.mjs';import {SITUATIONS} from './situations.mjs';import {buildMap} from './public/streetmap.js';
+const seq=values=>{let i=0;return()=>values[i++%values.length]};
+const center=SITUATIONS.find(s=>s.version==='demo-community-center-1');
+
+test('each level keeps the correction, the updates and the time limit inside its windows, in order',()=>{for(const level of Object.keys(LEVELS)){const L=LEVELS[level];for(let i=0;i<60;i++){const s=applyDifficulty(center,Math.random,level);assert.equal(s.difficulty.level,level);assert.ok(s.correctionAt>=L.correction[0]*1000&&s.correctionAt<=L.correction[1]*1000,level+' correction');assert.equal(s.endAt,L.endAt*1000);let prev=s.correctionAt;for(const l of s.extraCallerLines){assert.ok(l.at-prev>=L.gap[0]*1000&&l.at-prev<=L.gap[1]*1000,level+' gap');assert.ok(l.at<=s.endAt-15000);prev=l.at}assert.ok(s.extraCallerLines.length<=L.updates[1]);assert.ok(s.difficulty.travel.Fire>=L.travel.Fire[0]&&s.difficulty.travel.Fire<=L.travel.Fire[1])}}});
+
+test('the authored caller update keeps its text, fillers add no location detail, and the original situation is untouched',()=>{const before=JSON.stringify(center);const s=applyDifficulty(center,seq([0.99,0.5,0.5,0.99,0.5,0.5,0.5,0.5]),'hard');assert.equal(s.extraCallerLines[0].text,center.extraCallerLines[0].text);assert.ok(s.extraCallerLines.length>=2);assert.equal(JSON.stringify(center),before);
+ const words=SITUATIONS.flatMap(x=>buildMap(x).points.flatMap(p=>p.keywords));for(const f of FILLERS)for(const w of words)assert.equal(new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}($|[^a-z0-9])`,'i').test(f),false,`filler "${f}" mentions "${w}"`)});
+
+test('levels are random but weighted toward standard; authored scenarios without a time limit keep none',()=>{const counts={easy:0,standard:0,hard:0};for(let i=0;i<4000;i++)counts[pickLevel()]++;assert.ok(counts.standard>counts.easy&&counts.standard>counts.hard);assert.ok(counts.easy>500&&counts.hard>500);
+ const s=applyDifficulty({title:'Mine',correctionAt:30000,extraCallerLines:[],endAt:null},Math.random,'easy');assert.equal(s.endAt,null);assert.ok(s.correctionAt>=25000)});
