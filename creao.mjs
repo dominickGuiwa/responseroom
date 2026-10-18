@@ -100,13 +100,17 @@ export function importScenario(raw) {
  const gated = dispatcher.filter(e => (e.preconditions || []).some(p => /TF-|record|manually_entered/i.test(String(p))));
  if (gated.length) warnings.push(`${gated.map(e => e.event_id).join(', ')}: transmission requires a record entry first. Not imported — in ResponseRoom, sending never depends on record contents.`);
  if (first.trigger.at_seconds !== 0) warnings.push(`Initial caller message was timed at ${first.trigger.at_seconds}s; ResponseRoom sends it at start.`);
- if (caller.length > 2) warnings.push(`${caller.length - 2} further caller message(s) not imported; this app supports one later message.`);
- warnings.push('Not imported: rubric, AI interpretations, participant replies and counterexamples. They stay out of the trainee app.');
+ const extra = caller.slice(2, 12).filter(e => e.trigger.at_seconds > later.trigger.at_seconds);
+ if (caller.length - 2 > extra.length) warnings.push(`${caller.length - 2 - extra.length} caller message(s) not imported (same time as an earlier line, or more than 10).`);
+ // The agent guarantees a single timed end event (instructor_only.termination.guaranteed_end_event).
+ const endEvent = events.find(e => e?.event_id && e.event_id === v.instructor_only.termination?.guaranteed_end_event && e.trigger?.type === 'timed' && Number.isInteger(e.trigger.at_seconds));
+ const endSeconds = endEvent && endEvent.trigger.at_seconds > (extra.at(-1) ?? later).trigger.at_seconds && endEvent.trigger.at_seconds <= 3600 ? endEvent.trigger.at_seconds : null;
+ warnings.push('Not imported: rubric, AI interpretations, participant replies and counterexamples. Authored Fire/EMS replies state facts the trainee may not have sent; use readback templates instead.');
  const hiddenTruth = (v.instructor_only.hidden_truth || []).filter(f => f?.status !== 'superseded').map(f => `${f.fact_id}@${f.version}: ${String(f.statement ?? '').slice(0, 500)}`);
  const text = s => String(s).slice(0, 4000);
  const spoken = s => text(String(s).replace(/^\s*caller\s*:\s*/i, ''));
  return {
-  form: { title: text(`${v.scenario_id || 'CREAO scenario'} ${v.version || ''}`.trim()), briefing: text(context), initialMessage: spoken(first.scripted_message), correctionMessage: spoken(later.scripted_message), seconds: later.trigger.at_seconds },
+  form: { title: text(`${v.scenario_id || 'CREAO scenario'} ${v.version || ''}`.trim()), briefing: text(context), initialMessage: spoken(first.scripted_message), correctionMessage: spoken(later.scripted_message), seconds: later.trigger.at_seconds, extraCallerLines: extra.map(e => ({ seconds: e.trigger.at_seconds, text: spoken(e.scripted_message) })), endSeconds },
   hiddenTruth, warnings, scenarioId: String(v.scenario_id || '').slice(0, 100), version: String(v.version || '').slice(0, 40),
  };
 }
