@@ -2,7 +2,7 @@
 
 **A fictional, voice-based 911-dispatcher training simulator.** A trainee takes a call they have never seen: the caller, Fire and EMS talk on separate channels, the trainee answers by push-to-talk and keeps the incident record by hand, and an aerial map shows units going exactly where they were sent. Three CREAO agents play the people on the line (writing new situations, answering as the caller, drafting feedback); ElevenLabs gives them voices. Every agent output is validated and has a scripted fallback, nothing is graded by AI, and feedback reaches a trainee only when a human instructor releases it.
 
-Built for the LA Hacks AI Hackathon 2026 (Applied AI · Workday *Build the Future of Work with AI* · Best Designed Hack · CREAO Launchpad). Pitch, demo script and submission notes are in `docs/`.
+Built entirely during the LA Hacks AI Hackathon 2026 at UCLA (17–18 October 2026; every commit is from that weekend) for the Applied AI track and the Creao AI, Workday *Build the Future of Work with AI*, Paper *Best Designed Hack*, Sentry and ElevenLabs prize categories. Pitch, demo script and submission notes are in `docs/`.
 
 > **DEMO ONLY.** Not approved for operational training. No real procedures, addresses or people are included, and nothing here is emergency guidance.
 
