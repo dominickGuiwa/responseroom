@@ -21,12 +21,14 @@ In dispatch, *what you wrote down*, *what you transmitted* and *who confirmed it
 - **Goals and tasks:** four goals shown up front (quick first dispatch, relay changes fast, accurate record, right place) with per-call results, plus milestones like “three successes in a row”. A progress page shows success rate, goal rates against their aims, what to practice next and what is going well.
 - After you have sent something, **Finish call**, **New situation** and **End session** are always one click away.
 - Manual incident record (location, entrance, caller, notes). Nothing is prefilled or auto-corrected.
-- Separate Caller / Fire / EMS channels. Messages are delivered exactly as typed, including wrong content.
+- Separate Caller / Fire / EMS channels. Messages are delivered exactly as said or typed, including wrong content.
 - Delivery and acknowledgment are distinct events. Participants read back what they actually received, never facts they weren't sent.
 - Recording and transmitting are independent. You can send before recording, record without sending, or both.
 - Scripted caller corrections at authored times, optional time limit, pause/resume/end.
 - No live hints, suggested replies, missing-step warnings, scores or hidden-truth leaks.
-- Optional voice for incoming messages (browser speech synthesis); screen-reader announcements; phone-width layout.
+- **Voice, both ways (ElevenLabs).** Every caller, Fire and EMS line is read aloud as it arrives, in a different voice per role; the caller’s voice gets less steady as their distress rises. The trainee talks instead of typing: hold the button (or the space bar), release, and the transcript appears for a quick check before it is sent. Without an ElevenLabs key the device’s own voices read messages and trainees type; a blocked microphone falls back to typing too. Screen-reader announcements; phone-width layout.
+- **Fire is yellow, EMS is red:** thin accent lines on the send-to buttons, message bubbles, map markers, stations and the instructor’s timeline. Never used for status or scores.
+- **Results take the whole page** when a call ends: outcome, goals and where help ended up, with the previous conversation out of the way. New situation or End session from there.
 
 **Instructor (dashboard first, setup optional)**
 - **Runs dashboard:** every trainee run with status, length and automatic observations (was the caller’s correction recorded, and relayed to Fire and EMS?). Filter by trainee. These are keyword checks to guide review, not grades.
@@ -61,7 +63,15 @@ ResponseRoom calls the **ResponseRoom Scenario Builder** agent through CREAO's a
 - **Uniqueness is enforced:** a result is refused if it shares a title, a place, the same wrong → right pair, or a near-identical caller report with anything in the rotation. The instructor sees the reason and can press again.
 - Accepted situations join the rotation immediately, marked “Generated”, with a one-click remove. Rubrics, AI interpretations and participant replies are never imported. Keys never leave the server, and artifact downloads never forward the key to storage redirects.
 - **Debrief Coach:** a second agent (`CREAO_DEBRIEF_APP_ID` + `CREAO_DEBRIEF_API_KEY`) receives the finished run’s evidence and returns `{"draft", "citations"}`. The draft is stored as an unreleased review version and only a human can release feedback.
+- **Caller agent:** a third agent (`CREAO_CALLER_APP_ID` + `CREAO_CALLER_API_KEY`, set-up in `agents/caller-agent.md`) answers what the trainee says to the caller, in character, with a distress level that also drives the caller’s voice. It is given only the caller’s own lines so far, the recent conversation and the trainee’s message, never the hidden truth or the units. The scripted readback is held for a few seconds; a reply that arrives in time and passes the guard (no coaching, no naming the corrected detail before the caller has said it, no links or stage directions) replaces it, otherwise the readback goes out as before.
 - **Transparency:** the welcome page tells trainees where AI is used and lists what the app never does (no hints or warnings during a call, no AI grading, no messages to units the trainee didn’t send, no real procedures). The instructor dashboard shows the same note.
+
+## ElevenLabs voice
+
+Optional, enabled by `ELEVENLABS_API_KEY` in `.env` (`audio.mjs`, `public/audio.js`). The key never reaches the browser.
+- **Text to speech:** `GET /api/sessions/:id/audio?event=…` voices a line that is already in that call’s log (never arbitrary text), with the call’s own token or the instructor key. One premade voice per role (`ELEVENLABS_VOICE_CALLER/_FIRE/_EMS` to change them), `eleven_flash_v2_5` by default, caller `voice_settings` driven by a distress level. Identical lines are cached in memory and a daily character budget (`ELEVENLABS_DAILY_CHARS`, default 40 000) protects credits; when it runs out, device voices take over.
+- **Speech to text:** the browser records a push-to-talk clip (MediaRecorder, capped at 45 s) and posts it to `POST /api/sessions/:id/speech`; the server forwards it to Scribe (`scribe_v1`) and returns the transcript. Transcripts are never written to the log: only what the trainee sends becomes a message, so the record stays what they actually said. Only the trainee’s token may speak on a call.
+- **Fallbacks:** no key → device voices and typed input; blocked microphone → typed input; failed clip → device voice for that line. Tests mock ElevenLabs entirely (`audio.test.mjs`, `voice.test.mjs`).
 
 ## Sentry monitoring
 
@@ -84,12 +94,12 @@ Open http://127.0.0.1:4173.
 
 - **Trainee:** click *Start demo*.
 - **Instructor:** open http://127.0.0.1:4173/instructor. The instructor key is generated on first run in `.instructor-key` (local file, mode 600, gitignored).
-- **CREAO / Sentry (optional):** `cp .env.example .env`, set `CREAO_API_KEY` (app-scoped `capi_` key) and/or `SENTRY_DSN`, restart.
+- **CREAO / ElevenLabs / Sentry (optional):** `cp .env.example .env`, set `CREAO_API_KEY` (app-scoped `capi_` key), `ELEVENLABS_API_KEY` and/or `SENTRY_DSN`, restart.
 
 ## Tests
 
 ```bash
-npm test               # 86 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO adapter and Sentry (both mocked), voice
+npm test               # 101 tests: engine, HTTP auth, knowledge boundaries, storage isolation, CREAO (scenario, debrief and caller agents), ElevenLabs and Sentry (all mocked), voice
 npm run check:secrets  # fails if secrets/local state are tracked or appear anywhere in git history
 ```
 
@@ -108,6 +118,8 @@ creao.mjs       CREAO API adapter and output validation
 situations.mjs  built-in fictional situations with map params
 difficulty.mjs  random difficulty and caller timing per run
 generate.mjs    one-button CREAO generation: brief, derivation, uniqueness
+audio.mjs       ElevenLabs adapter: per-role voices, caching, budget, transcription
+public/audio.js read-aloud queue, device-voice fallback, push-to-talk recorder
 observations.mjs outcomes, goals, metrics and instructor observations
 public/streetmap.js shared aerial map: geometry, unit movement, popups, rendering
 public/insights.js  progress charts, goal rates, focus areas
@@ -120,11 +132,11 @@ docs/screenshots
 
 ## Limitations
 
-Local single-machine demo; scripted (not conversational) participants; one hidden location/entrance per scenario; no production authentication.
+Local single-machine demo; Fire and EMS are scripted readbacks (the caller is conversational only when the CREAO caller agent is connected); one hidden location/entrance per scenario; no production authentication.
 
 ## Built with
 
-Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, Sentry, browser speech synthesis. Development was assisted by AI coding tools.
+Node.js 24 (`node:http`, `node:sqlite`, `node:test`), vanilla JavaScript/CSS, CREAO agents, ElevenLabs (text to speech and Scribe transcription), Sentry, browser speech synthesis as the fallback. Development was assisted by AI coding tools.
 
 ## License
 

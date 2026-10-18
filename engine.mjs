@@ -19,8 +19,9 @@ export class Engine {
    // A time limit ends the exercise at exactly that scenario time; nothing scheduled after it is delivered.
    const limit=s.scenario.endAt??null,horizon=limit===null?s.elapsed:Math.min(s.elapsed,limit);
    // Participant replies are readbacks of what the trainee actually sent: an authored template wraps the raw text, never adds facts.
-   const reply=p=>{const t=s.scenario.replies?.[p.to];return t?t.split('{message}').join(p.text):`Received: “${p.text}”`};
-   const due=s.pending.filter(p=>p.due<=horizon).map(p=>({at:p.due,kind:'ack',data:{id:randomUUID(),from:p.to,to:'Dispatcher',text:reply(p),messageId:p.id,contentVersion:p.id}}));
+   // A caller-agent reply, when one arrived in time, replaces the readback for that message.
+   const reply=p=>{if(p.reply)return p.reply;const t=s.scenario.replies?.[p.to];return t?t.split('{message}').join(p.text):`Received: “${p.text}”`};
+   const due=s.pending.filter(p=>p.due<=horizon).map(p=>({at:p.due,kind:'ack',data:{id:randomUUID(),from:p.to,to:'Dispatcher',text:reply(p),messageId:p.id,contentVersion:p.id,...(p.reply?{agent:true,distress:p.distress??1}:{})}}));
    const lines=[{at:s.scenario.correctionAt??30000,text:s.scenario.correctionMessage||'I need to correct that. I am at the north entrance, not the south entrance.'},...(s.scenario.extraCallerLines||[])];
    let sent=s.callerSent??(s.corrected?1:0);
    while(sent<lines.length&&lines[sent].at<=horizon){due.push({at:lines[sent].at,kind:'message',data:{id:randomUUID(),from:'Caller',to:'Dispatcher',text:lines[sent].text}});sent++}
@@ -34,7 +35,8 @@ export class Engine {
  }
 
  // actor is 'trainee' or 'instructor'; the server only lets the instructor end an exercise, never act as the trainee.
- act(id,action,data,key,actor='trainee'){let s=this.get(id);if(!s)throw Error('Session not found');if(typeof key!=='string'||!key||key.length>100)throw Error('Request ID required');const payload=JSON.stringify([action,data]);const prior=this.db.prepare('SELECT payload FROM requests WHERE session=? AND request=?').get(id,key);if(prior){if(prior.payload!==payload)throw Object.assign(Error('Request ID reused with different content'),{status:409});return s;}
+ // callerHoldMs: with a caller agent connected, the scripted readback for a message to the caller waits this long so the agent's reply can take its place.
+ act(id,action,data,key,actor='trainee',{callerHoldMs=null}={}){let s=this.get(id);if(!s)throw Error('Session not found');if(typeof key!=='string'||!key||key.length>100)throw Error('Request ID required');const payload=JSON.stringify([action,data]);const prior=this.db.prepare('SELECT payload FROM requests WHERE session=? AND request=?').get(id,key);if(prior){if(prior.payload!==payload)throw Object.assign(Error('Request ID reused with different content'),{status:409});return s;}
  // Request IDs recorded before the requests table existed have no stored payload; treat them as already applied.
  if(this.db.prepare('SELECT 1 FROM events WHERE session=? AND request=?').get(id,key))return s;
  if(s.status==='ended'){this.db.prepare('INSERT INTO audit VALUES(?,?,?)').run(Date.now(),id,'Rejected action after end');throw Error('Exercise has ended')}
@@ -43,7 +45,9 @@ export class Engine {
  if(action==='end'&&data.reason!==undefined&&data.reason!=='next')throw Error('Unknown end reason');
  if(action==='record'&&(!['location','entrance','caller','notes'].includes(data.field)||typeof data.value!=='string'||data.value.length>4000))throw Error('Invalid record field');
  s=this.tick(s);if(s.status==='ended')throw Error('Exercise has ended');
- this.db.exec('BEGIN');try{if(action==='record'){s.record[data.field]=data.value;this.event(s,'record',data,key)}if(action==='send'){const m={id:randomUUID(),from:'Dispatcher',to:data.to,text:data.text};this.event(s,'message',m,key);s.pending.push({...m,due:s.elapsed+2500})}if(action==='pause'){s.status='paused';this.event(s,'paused',{},key)}if(action==='resume'){s.status='active';s.last=Date.now();this.event(s,'resumed',{},key)}if(action==='end'){s.status='ended';const cancelled=s.pending.map(p=>p.id);s.pending=[];this.event(s,'ended',{cancelledAcknowledgments:cancelled,...(actor==='instructor'?{reason:'instructor'}:data.reason==='next'?{reason:'next'}:{})},key)}this.save(s);this.db.prepare('INSERT INTO requests VALUES(?,?,?)').run(id,key,payload);this.db.exec('COMMIT');return s}catch(e){this.db.exec('ROLLBACK');throw e}}
+ this.db.exec('BEGIN');try{if(action==='record'){s.record[data.field]=data.value;this.event(s,'record',data,key)}if(action==='send'){const m={id:randomUUID(),from:'Dispatcher',to:data.to,text:data.text};this.event(s,'message',m,key);s.pending.push({...m,due:s.elapsed+(data.to==='Caller'&&callerHoldMs?callerHoldMs:2500)})}if(action==='pause'){s.status='paused';this.event(s,'paused',{},key)}if(action==='resume'){s.status='active';s.last=Date.now();this.event(s,'resumed',{},key)}if(action==='end'){s.status='ended';const cancelled=s.pending.map(p=>p.id);s.pending=[];this.event(s,'ended',{cancelledAcknowledgments:cancelled,...(actor==='instructor'?{reason:'instructor'}:data.reason==='next'?{reason:'next'}:{})},key)}this.save(s);this.db.prepare('INSERT INTO requests VALUES(?,?,?)').run(id,key,payload);this.db.exec('COMMIT');return s}catch(e){this.db.exec('ROLLBACK');throw e}}
+ // Caller agent reply for a message still waiting on its readback: delivered at once (or at resume when paused). Returns null when it is too late.
+ replyFromAgent(id,messageId,{reply,distress=1}){const s=this.get(id);if(!s||s.status==='ended')return null;const p=s.pending.find(x=>x.id===messageId&&x.to==='Caller'&&!x.reply);if(!p)return null;p.reply=String(reply);p.distress=distress;p.due=Math.min(p.due,s.elapsed);this.save(s);return this.tick(s)}
  scenarios(){return this.db.prepare('SELECT * FROM scenarios ORDER BY rowid DESC').all().map(r=>({...JSON.parse(r.data),approved:!!r.approved,approver:r.approver}))}
  // `extras` (keywords, map, units, detail, places, notes) come only from trusted server code, never from the authoring form.
  saveScenario(input,source={kind:'manual'},extras={}){

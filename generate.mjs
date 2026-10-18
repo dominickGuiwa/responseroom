@@ -163,3 +163,21 @@ export function debriefInputs({ session, events, observations: o, outcome: out, 
  ].join('\n');
  return { trainee_first_name: name, run_summary: summary.slice(0, 12000) };
 }
+
+// Caller agent inputs. The agent gets only what the caller knows: the caller's own lines so far (so the correction only
+// once it has actually been said), the conversation, and the trainee's latest message. Never the hidden truth, the
+// keywords, the units or anything from the instructor side. Field names match the agent's Input Form.
+export function callerInputs({ session: s, events, message }) {
+ const lines = events.filter(e => e.kind === 'message' || e.kind === 'ack');
+ const mine = lines.filter(e => e.kind === 'message' && e.data.from === 'Caller').map(e => e.data.text);
+ const corrected = !!s.corrected && mine.length > 1;
+ const brief = [
+  'Fictional dispatcher-training call (DEMO ONLY). You are the CALLER, a worried member of the public on the phone. The person talking to you is a trainee dispatcher.',
+  `What you have said so far, in order: ${mine.map(t => '"' + t + '"').join(' … ')}`,
+  corrected ? 'You already corrected one detail of your first report. You are a little embarrassed about it and anxious that help goes to the right place.' : 'You have NOT noticed any mistake in what you reported. Do not change, doubt or add to any place detail (address, side, floor, gate, unit, lane).',
+  'Rules: answer in 1–2 short spoken sentences, in character. Use only facts from your own lines above and what the dispatcher tells you. Never invent addresses, sides, floors, gates, unit numbers, names or injuries. Never advise, coach or grade the dispatcher, and never tell them which units to send. Show distress in your words (hesitation, urgency, repetition), never in stage directions or brackets.',
+  'Return JSON only: {"reply": "<what you say>", "distress": <0 calm, 1 worried, 2 upset, 3 frantic>}',
+ ].join('\n');
+ const conversation = lines.slice(-10).map(e => `${e.data.from === 'Dispatcher' ? 'Dispatcher' : e.data.from}: ${e.data.text}`).join('\n');
+ return { caller_brief: brief.slice(0, 2000), dispatcher_message: String(message.text).slice(0, 1000), conversation: (conversation || '(no earlier lines)').slice(0, 2000) };
+}

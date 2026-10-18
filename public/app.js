@@ -1,5 +1,6 @@
 import {finished,goalRates,summarize,focusAreas,tasks,outcomeBadge,goalBars,columnChart,outcomeStrip,seconds} from '/insights.js';
 import {buildMap,mapState,mountMap,renderMap} from '/streetmap.js';
+import {newMessages,createSpeaker,browserVoice,createRecorder} from '/audio.js';
 const LEVEL_LABEL={easy:'Easy',standard:'Standard',hard:'Hard'};
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -32,28 +33,17 @@ function error(e){document.querySelector('#error')?.remove();const el=document.c
 // Only the error message, stack and page path are sent; never drafts, messages or record contents.
 let clientErrorsSent=0;function reportClientError(message,stack){if(clientErrorsSent++>=10)return;fetch('/api/client-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:String(message).slice(0,500),stack:String(stack||'').slice(0,4000),path:location.pathname})}).catch(()=>{})}
 window.addEventListener('error',e=>reportClientError(e.message,e.error?.stack));window.addEventListener('unhandledrejection',e=>reportClientError(e.reason?.message||e.reason,e.reason?.stack));
-const speechAvailable='speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
-let voiceOn=false,voiceSession=null,voiceCursor=0;
-function speakMessage(event){
- if(!speechAvailable||!voiceOn||session?.status!=='active')return;
- const utterance=new SpeechSynthesisUtterance(`${event.data.from}. ${event.data.text}`);
- const voices=window.speechSynthesis.getVoices().filter(v=>/^en([-_]|$)/i.test(v.lang));
- // Prefer enhanced installed voices without requiring an external speech service.
- const score=v=>(v.localService?20:0)+(/premium|enhanced|natural|neural/i.test(v.name)?100:0)+(/samantha|ava|allison|evan|nathan|serena/i.test(v.name)?10:0)+(/^en-US$/i.test(v.lang)?5:0);
- const voice=voices.sort((a,b)=>score(b)-score(a))[0];
- if(voice)utterance.voice=voice;
- utterance.lang=voice?.lang||'en-US';utterance.rate=0.95;utterance.pitch=1;
- utterance.onerror=e=>{if(!['canceled','interrupted'].includes(e.error)){voiceOn=false;updateVoiceButton();error('Reading aloud is not available on this device. Messages are still shown as text.')}};
- window.speechSynthesis.speak(utterance);
-}
-function updateVoiceButton(){const b=document.querySelector('#voice');if(b){b.innerHTML=speechAvailable?`Read aloud<span class="state">: ${voiceOn?'on':'off'}</span>`:'Read aloud unavailable';b.setAttribute('aria-pressed',String(voiceOn));b.disabled=!speechAvailable}}
-function processVoice(){
- const latest=session.events.at(-1)?.seq||0;
- if(voiceSession!==session.id){voiceSession=session.id;voiceCursor=latest;return}
- if(session.status!=='active'){if(speechAvailable)window.speechSynthesis.cancel();voiceCursor=latest;return}
- for(const event of session.events){if(event.seq>voiceCursor&&['message','ack'].includes(event.kind)&&['Caller','Fire','EMS'].includes(event.data.from))speakMessage(event)}
- voiceCursor=latest;
-}
+// Voice. Incoming lines are read aloud as they arrive: ElevenLabs through the server when connected, otherwise the
+// device's own voices. One line at a time, in order; playback stops the moment a call pauses or ends.
+const deviceVoice=browserVoice();
+const fetchClip=async event=>{if(!info?.audio?.connected||!auth)return null;const r=await fetch(`/api/sessions/${auth.id}/audio?event=${encodeURIComponent(event.data.id)}`,{headers:{Authorization:'Bearer '+auth.token}});return r.ok?await r.arrayBuffer():null};
+const markSpeaking=(e,on)=>document.querySelector(`.bubble[data-id="${e.data.id}"]`)?.classList.toggle('speaking',on);
+const speaker=createSpeaker({fetchClip,fallback:deviceVoice?.speak,cancelFallback:deviceVoice?.cancel,onStart:e=>markSpeaking(e,true),onEnd:e=>markSpeaking(e,false)});
+const voiceCursor={id:null,seq:0};
+function processVoice(){const fresh=newMessages(voiceCursor,session);if(session.status!=='active'){speaker.stop();return}for(const e of fresh)speaker.say(e)}
+for(const type of ['pointerdown','keydown'])addEventListener(type,()=>speaker.unlock(),{once:true,capture:true});
+// Push-to-talk: hold the button (or the space bar) to record; the server transcribes the clip and the words are shown before they are sent.
+const recorder=createRecorder({onTick:ms=>{const t=document.querySelector('#ptt-time');if(t)t.textContent=time(ms)}});
 function header(right='',center=''){return `<header class="topbar"><a class="brand" href="${isInstructor?'/instructor':'/'}">ResponseRoom</a>${center}<div class="topbar-right">${right}</div></header>`}
 
 // Agent map: the caller agent, the trainee and the Fire/EMS agents. The live view only animates messages that were
@@ -101,9 +91,9 @@ const goals=()=>info?.goals||[];
 const firstName=n=>String(n||'').split(' ')[0];
 function goalsHtml(){return goals().length?`<section class="card goals-card" aria-labelledby="goals-title"><h2 id="goals-title">Your goals on every call</h2><ul class="goal-list">${goals().map(g=>`<li><strong>${esc(g.label)}</strong><span>${esc(g.target)}</span></li>`).join('')}</ul><p class="note">You see how you did after each call ends, never during it.</p></section>`:''}
 // Plain statement of where AI is used and where it is not. Shown to trainees before they start and to instructors on the dashboard.
-const AI_USES=['An AI agent (CREAO) writes new situations: the place, the caller’s words and the detail that changes. Each one is checked automatically before trainees see it, and an instructor can remove any of them.','Instructors can ask the agent for a first draft of feedback. A person always edits and approves it before a trainee sees it.'];
+const aiUses=()=>['CREAO writes new situations: the place, the caller’s words and the detail that changes. Each is checked automatically; an instructor can remove any of them.',...(info?.caller?.connected?['During a call, a CREAO caller agent answers what you say to the caller, in character. It knows only what the caller knows.']:[]),info?.audio?.connected?'ElevenLabs voices read each message aloud and turn what you say into text. Clips go to ElevenLabs for that and are not kept by this app.':'Your device’s own voices read messages aloud.','Instructors can ask the agent for a first draft of feedback. A person always edits and approves it before a trainee sees it.'];
 const AI_NEVER=['give hints, suggested replies or warnings during a call','grade a trainee or rank trainees','tell Fire or EMS anything the trainee did not send','talk to the trainee during a call','use real emergency procedures'];
-function aiCard(forInstructor=false){return `<section class="card ai-card" aria-labelledby="ai-title"><h2 id="ai-title">${forInstructor?'AI in this app':'How this app uses AI'}</h2><ul class="ai-list">${AI_USES.map(t=>`<li>${esc(t)}</li>`).join('')}</ul><h3>What it never does</h3><ul class="ai-list never">${AI_NEVER.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>${forInstructor?'<p class="note">Feedback is released only by you, under your name.</p>':''}</section>`}
+function aiCard(forInstructor=false){const body=`<ul class="ai-list">${aiUses().map(t=>`<li>${esc(t)}</li>`).join('')}</ul><h3>What it never does</h3><ul class="ai-list never">${AI_NEVER.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>${forInstructor?'<p class="note">Feedback is released only by you, under your name.</p>':''}`;return forInstructor?`<details class="card ai-card"><summary><h2>AI in this app</h2></summary>${body}</details>`:`<section class="card ai-card" aria-labelledby="ai-title"><h2 id="ai-title">How this app uses AI</h2>${body}</section>`}
 // Welcome-page demo: a fictional call that is not in the rotation, replayed on the same map engine trainees use.
 const DEMO_SCENARIO={version:'welcome-demo',title:'Welcome demo',truth:{location:'Riverside Training Center, Mill Road',entrance:'North entrance'},units:{Fire:'Engine 1',EMS:'Medic 1'},keywords:{corrected:['north'],original:['east']},difficulty:{travel:{Fire:16,EMS:22}},map:{streets:{north:'Elm Street',main:'Mill Road',south:'Harbor Street',west:'First Avenue',center:'Center Avenue',east:'Ninth Avenue'},buildingLabel:'Training Center',original:'east',corrected:'north',place:['training center','mill road'],fire:{label:'Fire Station 1',km:1.2},ems:{label:'Medic 1 base (ambulance)',km:1.8},hospital:{label:'General Hospital',km:2.4}}};
 const demoMsg=(time,from,to,text)=>({kind:'message',time,data:{from,to,text}});
@@ -117,7 +107,7 @@ function welcome(){
  <section class="card welcome-card">
   <p class="kicker">Dispatcher practice</p>
   <h1>Take the call. Keep the record. Send help.</h1>
-  <p class="lead">Every run is a new situation. Talk with the caller, message Fire and EMS when you decide to, and keep your own incident record.</p>
+  <ul class="lead-list"><li>A new situation every run</li><li>Talk with the caller; message Fire and EMS when you decide to</li><li>Keep your own incident record</li></ul>
   <form id="start-form"><label for="trainee-name">Your name</label><p class="field-help${needName?' needed':''}" id="name-help">${needName?'Please add your name first. ':''}Your instructor sees this name next to your calls.</p><input id="trainee-name" autocomplete="name" maxlength="60" required aria-describedby="name-help" value="${esc(traineeName)}" placeholder="First and last name"><button class="primary big">Start a situation</button></form>
   ${hasProgress?`<p class="progress-link"><button class="link-btn" data-act="progress">See your progress, ${esc(firstName(traineeName))}</button></p>`:''}
   <p class="fineprint">Fictional training only. Nothing here is real emergency guidance.</p>
@@ -127,7 +117,7 @@ function welcome(){
  ${aiCard(false)}
  <section class="how card" aria-labelledby="how-title">
   <h2 id="how-title">How it works</h2>
-  <ol class="steps"><li>You get a <strong>new situation</strong> each time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the incident record and message the caller, Fire or EMS.</li><li>The <strong>Fire and EMS agents</strong> act on exactly what you sent them, and the map shows it.</li><li>When the call ends you see the <strong>outcome</strong>, and your instructor can add feedback.</li></ol>
+  <ol class="steps"><li>A <strong>new situation</strong> every time.</li><li>The <strong>caller agent</strong> tells you what is happening.</li><li><strong>You</strong> keep the record and talk to the caller, Fire or EMS.</li><li><strong>Fire and EMS</strong> act on exactly what you sent. The map shows it.</li><li>At the end: the <strong>outcome</strong>, then your instructor’s feedback.</li></ol>
  </section></main>
  <footer class="sitefoot"><a href="/instructor">Instructor dashboard</a></footer>`;
  document.querySelector('#start-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#trainee-name').value.trim();if(!name||busy)return;traineeName=name;store.set('rr-trainee-name',name);needName=false;shift=[];tabStore.set('rr-shift',shift);busy=true;try{await startSituation()}catch(e){error(e)}finally{busy=false}};
@@ -135,6 +125,7 @@ function welcome(){
  startMapDemo();
 }
 async function startSituation(){
+ speaker.unlock();
  const created=await api('sessions',{name:traineeName,avoid:recent});
  recent=[...recent.filter(v=>v!==created.version),created.version].slice(-6);store.set('rr-recent',recent);
  shift=[...shift,{id:created.id,token:created.token,title:created.title}];tabStore.set('rr-shift',shift);
@@ -151,7 +142,7 @@ async function endSession(){if(busy)return;busy=true;try{if(session&&session.sta
 async function restartSession(){if(busy)return;busy=true;try{if(!traineeName)return await askForName();shift=[];tabStore.set('rr-shift',shift);await startSituation()}catch(e){error(e)}finally{busy=false}}
 function changeName(){traineeName='';store.del('rr-trainee-name');shift=[];tabStore.set('rr-shift',shift);showSummary=false;showProgress=false;tabStore.del('rr-summary');setAuth(null);session=null;render()}
 function render(){
- if(session?.status!=='active'&&speechAvailable)window.speechSynthesis.cancel();
+ if(session?.status!=='active')speaker.stop();
  if(isInstructor)return renderInstructor();
  if(showSummary)return summaryScreen();
  if(showProgress)return progressScreen(false);
@@ -177,17 +168,17 @@ function consoleScreen(){
  lastMessages='';
  const isEnded=session.status==='ended',paused=session.status==='paused',locked=isEnded||paused;
  const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
- const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="voice" aria-pressed="false">Read aloud: off</button><button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
+ const right=(traineeName?`<span class="chip name-chip">${esc(traineeName)}</span>`:'')+(isEnded?'':`<button class="ghost" id="pause">${paused?'Resume':'Pause'}</button>`);
+ const canTalk=!!info?.audio?.connected&&recorder.supported;
  const center=`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer" id="timer">${timerText()}</span></div>`;
- app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+(isEnded?endedCard():'')+`<main class="console has-map">
- <section class="card mapcard" aria-label="Map"><div class="card-head"><div><h2>Map</h2><p class="card-sub">Units go where you send them. Updates appear as they happen.</p></div></div><div id="street-map"></div></section>
+ app.innerHTML=header(right,center)+(paused?'<div class="notice" role="status">Paused. The clock and all messages are on hold.</div>':'')+`<main class="console has-map">
+ <section class="card mapcard" aria-label="Map"><div class="card-head"><div><h2>Map</h2><p class="card-sub">Units go where you send them.</p></div></div><div id="street-map"></div></section>
  <section class="card convo" aria-label="Conversation">
   <div class="feed" id="messages" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
-  <form id="composer" class="composer"><fieldset ${locked?'disabled':''}><legend>Send to</legend>
+  <form id="composer" class="composer"><fieldset ${locked?'disabled':''}><legend>Talk to</legend>
    <div class="send-to">${['Caller','Fire','EMS'].map(c=>`<button type="button" class="to" data-to="${c}" aria-pressed="${recipient===c}">${c}</button>`).join('')}</div>
-   <label for="draft" class="sr-only" id="draft-label">Message to ${esc(recipient)}</label>
-   <div class="compose-row"><textarea id="draft" rows="2" maxlength="4000" placeholder="Message to ${esc(recipient)}…">${esc(draft)}</textarea><button id="send" class="primary">Send</button></div>
-   <p class="compose-help">Enter sends. Shift + Enter starts a new line.</p>
+   ${canTalk?`<div class="talk"><button type="button" id="ptt" class="ptt" data-state="idle" aria-pressed="false" aria-describedby="talk-help"><span class="ptt-dot" aria-hidden="true"></span><span class="ptt-text" id="ptt-text">Hold to talk to ${esc(recipient)}</span><time class="ptt-time" id="ptt-time"></time></button><p class="compose-help" id="talk-help">Hold the button or the space bar while you speak · release to transcribe</p></div>`:`<p class="compose-help">${info?.audio?.connected?'No microphone here, so type your messages.':'Voice input is not connected (ELEVENLABS_API_KEY), so type your messages.'}</p>`}
+   <div class="transcript" id="transcript" ${canTalk&&!draft?'hidden':''}><label for="draft" id="draft-label">${canTalk?'What you said':`Message to ${esc(recipient)}`}</label><div class="compose-row"><textarea id="draft" rows="2" maxlength="4000" placeholder="${canTalk?'':`Message to ${esc(recipient)}…`}">${esc(draft)}</textarea><button id="send" class="primary">Send</button></div><p class="compose-help">${canTalk?'Fix any word it got wrong · ':''}Enter sends${canTalk?' · <button type="button" class="link-btn" id="again">Record again</button>':''}</p></div>
   </fieldset></form>
  </section>
  <aside class="side">
@@ -200,18 +191,36 @@ function consoleScreen(){
  <div class="nextbar" id="nextbar"></div>
  <div id="announce" class="sr-only" aria-live="polite"></div>
  <p class="connection" id="connection" role="status">${esc(connection)}</p>`;
- updateVoiceButton();
- const voice=document.querySelector('#voice');if(voice)voice.onclick=()=>{voiceOn=!voiceOn;if(speechAvailable)window.speechSynthesis.cancel();voiceCursor=session.events.at(-1)?.seq||0;updateVoiceButton();if(voiceOn){const latest=session.events.findLast(e=>['message','ack'].includes(e.kind)&&['Caller','Fire','EMS'].includes(e.data.from));if(latest)speakMessage(latest)}};
- document.querySelectorAll('.to').forEach(b=>b.onclick=()=>{recipient=b.dataset.to;store.set(draftKey('to'),recipient);document.querySelectorAll('.to').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));const box=document.querySelector('#draft');box.placeholder=`Message to ${recipient}…`;document.querySelector('#draft-label').textContent=`Message to ${recipient}`;box.focus()});
+ document.querySelectorAll('.to').forEach(b=>b.onclick=()=>{recipient=b.dataset.to;store.set(draftKey('to'),recipient);document.querySelectorAll('.to').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));const box=document.querySelector('#draft');if(!canTalk){box.placeholder=`Message to ${recipient}…`;document.querySelector('#draft-label').textContent=`Message to ${recipient}`}setPtt(document.querySelector('#ptt')?.dataset.state||'idle');(canTalk&&document.querySelector('#transcript').hidden?document.querySelector('#ptt'):box)?.focus()});
  const box=document.querySelector('#draft');
  box.oninput=()=>{draft=box.value;store.set(draftKey('draft'),draft)};
  box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();document.querySelector('#composer').requestSubmit()}};
- document.querySelector('#composer').onsubmit=async e=>{e.preventDefault();if(busy||!draft.trim())return;busy=true;const sentText=draft,sendButton=document.querySelector('#send');sendButton.disabled=true;try{if(await action('send',{to:recipient,text:sentText})&&draft===sentText){draft='';store.del(draftKey('draft'));const input=document.querySelector('#draft');if(input)input.value=''}paintMessages()}catch(e){error(e)}finally{busy=false;sendButton.disabled=false;document.querySelector('#draft')?.focus()}};
+ document.querySelector('#composer').onsubmit=async e=>{e.preventDefault();if(busy||!draft.trim())return;busy=true;const sentText=draft,sendButton=document.querySelector('#send');sendButton.disabled=true;try{if(await action('send',{to:recipient,text:sentText})&&draft===sentText){draft='';store.del(draftKey('draft'));const input=document.querySelector('#draft');if(input)input.value='';if(canTalk)hideTranscript()}paintMessages()}catch(e){error(e)}finally{busy=false;sendButton.disabled=false;(canTalk&&document.querySelector('#transcript')?.hidden?document.querySelector('#ptt'):document.querySelector('#draft'))?.focus()}};
+ const again=document.querySelector('#again');if(again)again.onclick=()=>{draft='';store.del(draftKey('draft'));box.value='';hideTranscript();document.querySelector('#ptt')?.focus()};
+ bindPushToTalk();
  for(const [k] of FIELDS){const el=document.getElementById(k);el.oninput=()=>{recordDrafts[k]=el.value;store.set(draftKey('record-drafts'),recordDrafts);document.querySelector('#record-status').textContent=recordStatus()}}
  document.querySelector('#record-form').onsubmit=e=>{e.preventDefault();saveRecord()};
  const pause=document.querySelector('#pause');if(pause)pause.onclick=async()=>{try{if(await action(session.status==='paused'?'resume':'pause')){render();document.querySelector('#pause')?.focus()}}catch(e){error(e)}};
  paintMessages();
 }
+// Push-to-talk wiring. Press and hold records; a quick tap starts a recording that the next tap ends. Space or Enter on
+// the button do the same from the keyboard, and the space bar works anywhere on the console when no field has focus.
+function hideTranscript(){const b=document.querySelector('#transcript');if(b)b.hidden=true}
+function setPtt(state){const p=document.querySelector('#ptt');if(!p)return;p.dataset.state=state;p.setAttribute('aria-pressed',String(state==='recording'));p.disabled=state==='busy';const t=document.querySelector('#ptt-text');if(t)t.textContent=state==='recording'?'Listening… release or tap to stop':state==='busy'?'Transcribing…':`Hold to talk to ${recipient}`;const c=document.querySelector('#ptt-time');if(c)c.textContent=state==='recording'?'00:00':''}
+let pttHeld=0;
+async function pttBegin(){const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording||busy||session?.status!=='active')return;pttHeld=Date.now();try{await recorder.start()}catch(e){error(['NotAllowedError','SecurityError'].includes(e?.name)?'Microphone blocked. Allow it for this site in the address bar, then try again.':'Microphone unavailable. '+(e?.message||''));const b=document.querySelector('#transcript');if(b)b.hidden=false;return}setPtt('recording')}
+async function pttFinish(){if(!recorder.recording)return;setPtt('busy');const clip=await recorder.stop();if(!clip||clip.size<2000){setPtt('idle');error('Didn’t catch that. Hold the button while you speak.');return}
+ try{const r=await fetch('/api/sessions/'+auth.id+'/speech',{method:'POST',headers:{'Content-Type':clip.type||'audio/webm',Authorization:'Bearer '+auth.token},body:clip});const data=await r.json();if(!r.ok)throw Error(data.error);
+  if(!data.text){setPtt('idle');error('No words were recognised. Try again, a little closer to the microphone.');return}
+  draft=data.text;store.set(draftKey('draft'),draft);const b=document.querySelector('#transcript'),ta=document.querySelector('#draft');if(b)b.hidden=false;if(ta)ta.value=draft;setPtt('idle');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+ catch(e){setPtt('idle');error(e)}}
+function bindPushToTalk(){const p=document.querySelector('#ptt');if(!p)return;
+ p.onpointerdown=e=>{e.preventDefault();if(recorder.recording)pttFinish();else pttBegin()};
+ p.onpointerup=p.onpointercancel=p.onpointerleave=()=>{if(recorder.recording&&Date.now()-pttHeld>600)pttFinish()};
+ p.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();if(!e.repeat&&!recorder.recording)pttBegin()}};
+ p.onkeyup=e=>{if((e.key===' '||e.key==='Enter')&&recorder.recording){e.preventDefault();pttFinish()}};
+ p.onclick=e=>e.preventDefault()}
+document.addEventListener('keydown',e=>{if(e.key!==' '||e.repeat||e.target.closest?.('input,textarea,button,select,a,[contenteditable]'))return;const p=document.querySelector('#ptt');if(!p||p.disabled||recorder.recording)return;e.preventDefault();p.focus();pttBegin()});
 async function saveRecord(){
  const status=document.querySelector('#record-status');
  const changes=FIELDS.map(([k])=>[k,document.getElementById(k).value]).filter(([k,v])=>v!==session.record[k]);
@@ -226,8 +235,8 @@ function announceNew(){const latest=session.events.at(-1)?.seq||0;if(announceCur
 function paintMap(){if(session?.map)mountMap(document.querySelector('#street-map'),session.map.spec,session.map.state,session.id)}
 let lastMessages='';function paintMessages(){processVoice();announceNew();animateAgents();paintNextBar();updateTimer();paintMap();const el=document.querySelector('#messages');if(!el)return;
  const replied=new Set(session.events.filter(e=>e.kind==='ack').map(e=>e.data.messageId));
- const bubble=(cls,who,e,extra='')=>`<article class="bubble ${cls}"><div class="who"><span>${esc(who)}</span><time>${time(e.time)}</time></div><p>${esc(e.data.text)}</p>${extra}</article>`;
- const html=(Date.now()<incomingUntil?'<div class="incoming">New call · the caller is on the line</div>':'')+session.events.filter(e=>['message','ack'].includes(e.kind)).map(e=>e.kind==='ack'?bubble('unit',e.data.from,e):e.data.from==='Dispatcher'?bubble('mine',`You → ${e.data.to}`,e,`<p class="status">Delivered${replied.has(e.data.id)?` · ${esc(e.data.to)} replied`:''}</p>`):bubble('caller','Caller',e)).join('');
+ const bubble=(cls,who,e,extra='')=>`<article class="bubble ${cls}" data-id="${esc(e.data.id)}"><div class="who"><span>${esc(who)}</span><time>${time(e.time)}</time></div><p>${esc(e.data.text)}</p>${extra}</article>`;
+ const html=(Date.now()<incomingUntil?'<div class="incoming">New call · the caller is on the line</div>':'')+session.events.filter(e=>['message','ack'].includes(e.kind)).map(e=>e.kind==='ack'?bubble('unit '+e.data.from.toLowerCase(),e.data.from,e):e.data.from==='Dispatcher'?bubble('mine to-'+e.data.to.toLowerCase(),`You → ${e.data.to}`,e,`<p class="status">Delivered${replied.has(e.data.id)?` · ${esc(e.data.to)} replied`:''}</p>`):bubble('caller','Caller',e)).join('');
  if(html!==lastMessages){lastMessages=html;const bottom=el.scrollHeight-el.scrollTop-el.clientHeight<120;el.innerHTML=html;if(bottom)el.scrollTop=el.scrollHeight}}
 // Returns true only if the response still belongs to this tab's current session; a late reply for a session this tab has left is dropped.
 // Retry IDs are per tab, so two tabs on one session never deduplicate each other's intentional sends.
@@ -241,7 +250,23 @@ async function action(action,data={}){
  if(auth?.id!==id)return false;
  session=next;paintMessages();return true;
 }
-function ended(){consoleScreen()}
+function ended(){resultsScreen()}
+function resultsScreen(){
+ lastMessages='';
+ const o=session.outcome,p=session.performance,reason=session.events.findLast(e=>e.kind==='ended')?.data.reason;
+ const why={time_limit:'Time limit reached',instructor:'Ended by your instructor',next:'You moved on'}[reason]||'Call finished';
+ const number=Math.max(1,shift.findIndex(x=>x.id===session.id)+1);
+ const goalRows=goalChecks(p);
+ app.innerHTML=header('',`<div class="call-meta"><span class="call-label">Situation ${number}</span><span class="call-title">${esc(session.title||'')}</span><span class="timer">${time(session.elapsed)}</span></div>`)+`<main class="results">
+ <section class="results-head"><p class="kicker">${esc(why)}</p>${o?outcomeBadge(o.result):''}<h1>${esc(o?.headline||'This call has ended.')}</h1></section>
+ <div class="results-grid">
+  ${o?.lines?.length||o?.note?`<section class="card"><h2>What happened</h2>${o?.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o?.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o&&o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</section>`:''}
+  ${goalRows?`<section class="card"><h2>Goals</h2><ul class="checks">${goalRows}</ul></section>`:''}
+  ${session.map?`<section class="card results-map"><h2>Where help ended up</h2>${renderMap(session.map.spec,session.map.state,{})}</section>`:''}
+ </div>
+ <div class="actions results-actions"><button class="secondary" data-act="end-session">End session</button><button class="primary big" data-act="next">New situation</button></div></main>`;
+ scrollTo(0,0);
+}
 async function summaryScreen(){return progressScreen(true)}
 const tile=(num,label)=>`<div class="stat"><span class="num">${num}</span><span class="lbl">${label}</span></div>`;
 function shiftItem(v){const sent=v.events.filter(e=>e.kind==='message'&&e.data.from==='Dispatcher').length;return `<div class="shift-head"><strong>${esc(v.title||'Situation')}</strong>${v.outcome?outcomeBadge(v.outcome.result):''}</div>${v.outcome?`<p>${esc(v.outcome.headline)}</p>`:''}<p class="muted">${time(v.elapsed)} on the call · ${sent} message${sent===1?'':'s'} sent</p>${v.review?`<p class="feedback-label">Feedback from your instructor</p><p class="feedback-text">${esc(v.review)}</p>`:'<p class="muted">Instructor feedback: not yet.</p>'}`}
@@ -299,14 +324,14 @@ async function runsScreen(fetched){
  const runs=inst.runs.filter(r=>!inst.filter||nameOf(r)===inst.filter),s=summarize(runs);
  const people=names.filter(n=>!inst.filter||n===inst.filter).map(n=>{const mine=inst.runs.filter(r=>nameOf(r)===n),sm=summarize(mine),f=focusAreas(mine,goals());return {name:n,live:mine.some(r=>r.status!=='ended'),...sm,focus:f.focus[0]?.label||(sm.calls>=2?'On track':'Needs more calls')}});
  app.innerHTML=instHeader()+`<main class="dash">
- <div class="dash-head"><div><h1>Runs</h1><p class="lead">Every situation a trainee works through. Open a trainee for their progress graphs, or a run to see exactly what happened.</p></div>
+ <div class="dash-head"><div><h1>Runs</h1><p class="lead">Open a trainee for progress, or a run for the full timeline.</p></div>
   <div class="filter"><label for="trainee-filter">Show</label><select id="trainee-filter"><option value="">All trainees</option>${names.map(n=>`<option ${n===inst.filter?'selected':''}>${esc(n)}</option>`).join('')}</select></div></div>
  <section class="stats" aria-label="Summary">${tile(runs.length,runs.length===1?'run':'runs')}${inst.filter?'':tile(names.length,names.length===1?'trainee':'trainees')}${tile(runs.filter(r=>r.status!=='ended').length,'running now')}${tile(s.successRate==null?'—':s.successRate+'%','success rate')}${tile(seconds(s.medianFirst),'typical first dispatch')}</section>
  <div class="dash-grid">
-  <section class="card"><h2>Trainees</h2><p class="card-sub">Open a trainee for graphs and what to practice next.</p>${people.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Calls</th><th>Success rate</th><th>Practice next</th></tr></thead><tbody>${people.map(t=>`<tr data-trainee="${esc(t.name)}"><td><button class="link-btn" data-trainee-open="${esc(t.name)}">${esc(t.name)}</button>${t.live?' <span class="status-chip live">Live</span>':''}</td><td>${t.calls}</td><td>${t.successRate==null?'—':t.successRate+'%'}</td><td>${esc(t.focus)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No trainees yet.</p>'}</section>
+  <section class="card"><h2>Trainees</h2><p class="card-sub">Graphs and what to practice next</p>${people.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Calls</th><th>Success rate</th><th>Practice next</th></tr></thead><tbody>${people.map(t=>`<tr data-trainee="${esc(t.name)}"><td><button class="link-btn" data-trainee-open="${esc(t.name)}">${esc(t.name)}</button>${t.live?' <span class="status-chip live">Live</span>':''}</td><td>${t.calls}</td><td>${t.successRate==null?'—':t.successRate+'%'}</td><td>${esc(t.focus)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No trainees yet.</p>'}</section>
   <section class="card"><h2>Goals${inst.filter?` for ${esc(inst.filter)}`:' across all trainees'}</h2>${goalBars(goalRates(runs,goals()))}</section>
  </div>
- <p class="note">Outcomes, goals and focus areas come from automatic checks of what each trainee sent and recorded. Use them to decide what to review, and confirm against the run before giving feedback.</p>
+ <p class="note">Automatic checks of what was sent and recorded: a guide for review, not a grade.</p>
  ${aiCard(true)}
  <section class="card"><h2>All runs</h2>${runs.length?`<div class="table-wrap"><table><thead><tr><th>Trainee</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Length</th><th>Outcome</th><th>Goals met</th><th>How it ended</th><th>Feedback</th></tr></thead><tbody>${runs.map(r=>`<tr data-run="${esc(r.id)}"><td><button class="link-btn" data-open="${esc(r.id)}">${esc(nameOf(r))}</button></td><td>${esc(r.title)}</td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${time(r.elapsed)}</td><td>${outcomeCell(r)}</td><td>${goalsMetText(r)}</td><td>${r.status==='ended'?esc(END_REASON[r.observations.ended?.reason]||'Ended'):''}</td><td>${feedbackChip(r)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="empty">No runs yet. When a trainee starts a situation at ${esc(location.origin)}, it appears here on its own.</p>`}</section></main>`;
  bindInstHeader();
@@ -336,20 +361,20 @@ function traineeScreen(){
   <section class="card chart-card"><h2>Time to first Fire or EMS message</h2><p class="card-sub">Seconds from the start of each call. The line is the 30 second goal.</p>${recent.length?firstChart:'<p class="empty">No finished calls yet.</p>'}</section>
   <section class="card chart-card"><h2>Time to relay the caller’s change</h2><p class="card-sub">Seconds from the caller’s correction until every unit sent had it. An × means it never reached every unit.</p>${relayRuns.length?relayChart:'<p class="empty">No calls reached the caller’s correction yet.</p>'}</section>
  </div>
- <section class="card"><h2>Calls</h2><p class="card-sub">The numbers behind the graphs. Open a call to see its full timeline.</p>${done.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Outcome</th><th>First dispatch</th><th>Relay time</th><th>Record correct</th><th>Right place</th></tr></thead><tbody>${done.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<tr data-run="${esc(r.id)}"><td>${i+1}</td><td><button class="link-btn" data-open="${esc(r.id)}">${esc(r.title)}</button></td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${outcomeBadge(r.outcome.result)}</td><td>${seconds(r.performance.metrics.firstDispatchMs)}</td><td>${r.performance.metrics.correctionHeard?seconds(r.performance.metrics.relayMs):'n/a'}</td><td>${cell(r.performance.goals.accurateRecord)}</td><td>${cell(r.performance.goals.rightPlace)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No finished calls yet.</p>'}</section></main>`;
+ <section class="card"><h2>Calls</h2><p class="card-sub">The numbers behind the graphs · open a call for its timeline</p>${done.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>Situation</th><th>Difficulty</th><th>Started</th><th>Outcome</th><th>First dispatch</th><th>Relay time</th><th>Record correct</th><th>Right place</th></tr></thead><tbody>${done.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<tr data-run="${esc(r.id)}"><td>${i+1}</td><td><button class="link-btn" data-open="${esc(r.id)}">${esc(r.title)}</button></td><td>${esc(LEVEL_LABEL[r.difficulty]||'—')}</td><td>${esc(when(r.created))}</td><td>${outcomeBadge(r.outcome.result)}</td><td>${seconds(r.performance.metrics.firstDispatchMs)}</td><td>${r.performance.metrics.correctionHeard?seconds(r.performance.metrics.relayMs):'n/a'}</td><td>${cell(r.performance.goals.accurateRecord)}</td><td>${cell(r.performance.goals.rightPlace)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">No finished calls yet.</p>'}</section></main>`;
  bindInstHeader();
  document.querySelector('#back-runs').onclick=()=>{inst.view='runs';renderInstructor()};
  document.querySelectorAll('tr[data-run]').forEach(tr=>tr.onclick=()=>openRun(tr.dataset.run).catch(error));
 }
-async function openRun(id){inst.runId=id;inst.scrub=null;inst.view='run';await loadRun()}
+async function openRun(id){inst.runId=id;inst.scrub=null;inst.view='run';await loadRun();scrollTo(0,0)}
 async function loadRun(){inst.run=await api('sessions/'+inst.runId+'/review',null,adminKey);inst.debrief=await api('sessions/'+inst.runId+'/debrief',null,adminKey).catch(()=>null);runScreen()}
 let debriefTimer=null;
 function describe(e,r){
  const t=(r.trainee||'Trainee').split(' ')[0],o=r.observations;
  switch(e.kind){
   case 'started':return {who:'Call started',cls:'sys'};
-  case 'message':if(e.data.from==='Caller')return {who:'Caller',say:e.data.text,cls:'caller',tag:e.seq===r.events.find(x=>x.kind==='message'&&x.data.from==='Caller')?.seq?'First report':e.time===o.correctionAt?'Correction':''};return {who:`${t} → ${e.data.to}`,say:e.data.text,cls:'mine'};
-  case 'ack':return {who:`${e.data.from} replied`,text:e.data.text,cls:'unit'};
+  case 'message':if(e.data.from==='Caller')return {who:'Caller',say:e.data.text,cls:'caller',tag:e.seq===r.events.find(x=>x.kind==='message'&&x.data.from==='Caller')?.seq?'First report':e.time===o.correctionAt?'Correction':''};return {who:`${t} → ${e.data.to}`,say:e.data.text,cls:'mine to-'+String(e.data.to).toLowerCase()};
+  case 'ack':return {who:`${e.data.from} replied`,text:e.data.text,cls:'unit '+String(e.data.from).toLowerCase()};
   case 'record':return {who:`${t} updated the record`,text:`${FIELD_LABEL[e.data.field]||e.data.field}: ${e.data.value?`“${e.data.value}”`:'(cleared)'}`,cls:'record'};
   case 'paused':return {who:'Paused',cls:'sys'};
   case 'resumed':return {who:'Resumed',cls:'sys'};
@@ -363,7 +388,7 @@ function snapshotHtml(r,idx){
  const evs=r.events.slice(0,idx+1),rec={location:'',entrance:'',caller:'',notes:''},told={Fire:[],EMS:[]},counts={},add=k=>counts[k]=(counts[k]||0)+1;
  for(const e of evs){if(e.kind==='record')rec[e.data.field]=e.data.value;if(e.kind==='message'){if(e.data.from==='Dispatcher'){told[e.data.to]?.push(e.data.text);add('You>'+e.data.to)}else add(e.data.from+'>You')}if(e.kind==='ack')add(e.data.from+'>You')}
  const list=a=>a.length?`<ul>${a.map(x=>`<li>“${esc(x)}”</li>`).join('')}</ul>`:'<p class="muted">Nothing yet.</p>';
- return `${replayMap(r,evs.at(-1)?.time||0)}${agentMap({counts})}<table class="compare"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">What really happened</th><th scope="col">Trainee’s record</th></tr></thead><tbody><tr><th scope="row">Location</th><td>${esc(r.scenario.truth.location)}</td><td>${esc(rec.location)||'—'}</td></tr><tr><th scope="row">Entrance, unit or side</th><td>${esc(r.scenario.truth.entrance)}</td><td>${esc(rec.entrance)||'—'}</td></tr>${rec.caller?`<tr><th scope="row">Caller</th><td></td><td>${esc(rec.caller)}</td></tr>`:''}${rec.notes?`<tr><th scope="row">Notes</th><td></td><td>${esc(rec.notes)}</td></tr>`:''}</tbody></table><div class="knows"><h3>Fire has been sent</h3>${list(told.Fire)}<h3>EMS has been sent</h3>${list(told.EMS)}</div>`;
+ return `${replayMap(r,evs.at(-1)?.time||0)}${agentMap({counts})}<table class="compare"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">What really happened</th><th scope="col">Trainee’s record</th></tr></thead><tbody><tr><th scope="row">Location</th><td>${esc(r.scenario.truth.location)}</td><td>${esc(rec.location)||'—'}</td></tr><tr><th scope="row">Entrance, unit or side</th><td>${esc(r.scenario.truth.entrance)}</td><td>${esc(rec.entrance)||'—'}</td></tr>${rec.caller?`<tr><th scope="row">Caller</th><td></td><td>${esc(rec.caller)}</td></tr>`:''}${rec.notes?`<tr><th scope="row">Notes</th><td></td><td>${esc(rec.notes)}</td></tr>`:''}</tbody></table><div class="knows"><h3 class="unit-head fire">Fire has been sent</h3>${list(told.Fire)}<h3 class="unit-head ems">EMS has been sent</h3>${list(told.EMS)}</div>`;
 }
 function outcomeHtml(r){const o=r.outcome;if(r.status!=='ended'||!o)return '';const first=nameOf(r).split(' ')[0];const checks=goalChecks(r.performance);return `<section class="card outcome-card instructor-outcome"><div class="outcome-main"><p class="kicker">Outcome ${esc(first)} saw</p>${outcomeBadge(o.result)}<h2>${esc(o.headline)}</h2>${o.lines?.length?`<ul class="outcome-lines">${o.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}${o.note?`<p class="outcome-note">${esc(o.note)}</p>`:''}${o.result!=='incomplete'?`<p class="note">${esc(o.rule)}</p>`:''}</div>${checks?`<div class="outcome-goals"><h3>Goals on this call</h3><ul class="checks">${checks}</ul></div>`:''}</section>`}
 function observationsHtml(r){
@@ -376,15 +401,15 @@ function observationsHtml(r){
  }
  items.push(row(null,o.firstUnitMessageAt!==null?`First message to Fire or EMS at <strong>${time(o.firstUnitMessageAt)}</strong>.`:'No messages to Fire or EMS.'));
  items.push(row(null,`Replies received: Fire ${o.units.Fire.replies}, EMS ${o.units.EMS.replies}, caller ${o.units.Caller.replies}.`));
- return `<section class="card observations-card"><h2>Automatic observations</h2><p class="note">Keyword checks of the log${k.corrected?` (looking for “${esc(k.corrected)}”)`:''}. Use them to find moments worth reviewing, and confirm against the timeline. They are not a grade.</p><ul class="checks">${items.join('')}</ul></section>`;
+ return `<section class="card observations-card"><h2>Automatic observations</h2><p class="note">Keyword checks${k.corrected?` for “${esc(k.corrected)}”`:''} · confirm against the timeline · not a grade</p><ul class="checks">${items.join('')}</ul></section>`;
 }
 function feedbackHtml(r){
  const name=nameOf(r),first=name.split(' ')[0],last=r.reviews?.at(-1),human=[...(r.reviews||[])].reverse().find(v=>v.reviewer!=='CREAO draft');
  if(r.status!=='ended')return `<section class="card"><h2>Feedback</h2><p class="muted">You can write feedback once this run ends.</p><div class="actions"><button class="secondary" id="end-run">End this run now</button></div></section>`;
  const d=inst.debrief,pending=d?.debriefs?.find(x=>x.status==='pending'),ready=d?.debriefs?.find(x=>x.status==='ready'),failed=!pending&&d?.debriefs?.find(x=>x.status==='failed');
- const draftLine=pending?'CREAO is drafting… usually under two minutes. You can keep working.':ready&&last?.reviewer==='CREAO draft'?`Drafted by CREAO (${esc(when(ready.created))}). It cites event numbers; check each one against the timeline, edit freely, then release under your name.`:failed?`CREAO could not draft this time: ${esc(failed.error||'unknown reason')}.`:'';
+ const draftLine=pending?'CREAO is drafting · usually under two minutes':ready&&last?.reviewer==='CREAO draft'?`CREAO draft, ${esc(when(ready.created))} · check each cited event · edit · release under your name`:failed?`CREAO couldn’t draft: ${esc(failed.error||'unknown reason')}`:'';
  return `<section class="card"><h2>Feedback for ${esc(first)}</h2>${r.released?`<p class="status-line">Released to ${esc(first)}.</p>`:last?`<p class="status-line">${last.reviewer==='CREAO draft'?'AI draft saved. Not released.':'Draft saved. Not released yet.'}</p>`:''}
- <div class="actions draft-row"><button type="button" class="secondary" id="draft-debrief" ${!d?.connected||pending?'disabled':''}>${pending?'Drafting…':'Draft with CREAO'}</button><span class="note" id="debrief-status">${draftLine||(d?.connected?'Optional: ask the Debrief Coach for a first draft that cites the timeline.':'Debrief drafting is not connected (CREAO_DEBRIEF_APP_ID and CREAO_DEBRIEF_API_KEY).')}</span></div>
+ <div class="actions draft-row"><button type="button" class="secondary" id="draft-debrief" ${!d?.connected||pending?'disabled':''}>${pending?'Drafting…':'Draft with CREAO'}</button><span class="note" id="debrief-status">${draftLine||(d?.connected?'Optional first draft that cites the timeline':'Not connected · CREAO_DEBRIEF_APP_ID + CREAO_DEBRIEF_API_KEY')}</span></div>
  <form id="feedback-form" class="feedback-form"><div><label for="reviewer">Your name</label><input id="reviewer" maxlength="100" required value="${esc(store.get('rr-reviewer','')||human?.reviewer||'')}"></div><div><label for="feedback">What should ${esc(first)} know?</label><textarea id="feedback" rows="7" maxlength="10000" required>${esc(last?.text||'')}</textarea></div>
  <label class="check"><input type="checkbox" id="verified" required aria-label="I checked this against the timeline"> I checked this against the timeline</label>
  <div class="actions"><button type="button" class="secondary" id="save-draft">Save draft</button><button class="primary">Release to ${esc(first)}</button></div></form>
@@ -425,10 +450,10 @@ async function libraryScreen(){
  [inst.situations,scenarioList,creaoState]=await Promise.all([api('situations',null,adminKey),api('scenarios',null,adminKey),api('creao',null,adminKey)]);
  const auto=creaoState.generations.filter(g=>g.mode==='auto'),pending=auto.filter(g=>g.status==='pending'),recent=auto.slice(0,5);
  const titleOf=g=>scenarioList.find(s=>s.id===g.scenario)?.title;
- const genLine=g=>g.status==='pending'?'Generating with CREAO… usually 1–3 minutes. You can leave this page; it is added when ready.':g.status==='added'?`Added “${esc(titleOf(g)||'a new situation')}” to the rotation.`:g.status==='rejected'?`Couldn’t use CREAO’s result. ${esc(g.error||'')} Try again.`:esc(g.status);
- app.innerHTML=instHeader()+`<main class="dash"><h1>Situations</h1><p class="lead">Each trainee run gets one of these at random, skipping ones the trainee just had. Difficulty and caller timing are drawn fresh for every run.</p>
- <section class="card generate-card"><div class="card-head"><div><h2>Generate a new situation</h2><p class="card-sub">${creaoState.connected?'CREAO writes a situation unlike anything already in the rotation: a new place, a new incident and a new detail for the caller to correct. It is checked and added automatically. Demo only; remove it if it isn’t suitable.':'Not connected. Add CREAO_API_KEY (an app-scoped capi_ key from the agent page) to the .env file in the app folder, then restart the server.'}</p></div><button class="primary big" id="generate" ${!creaoState.connected||pending.length?'disabled':''}>${pending.length?'Generating…':'Generate with CREAO'}</button></div>
-  ${creaoState.pool?`<p class="note pool-status">${creaoState.pool.ready} CREAO-written situation${creaoState.pool.ready===1?'':'s'} ready for trainees · target ${creaoState.pool.target}${creaoState.pool.pending?' · one is being written now':''}${creaoState.pool.paused?' · '+esc(creaoState.pool.paused):''}. Built-in situations are used only when none of these is fresh for a trainee.</p>`:''}
+ const genLine=g=>g.status==='pending'?'Generating · 1–3 minutes · added automatically when ready':g.status==='added'?`Added “${esc(titleOf(g)||'a new situation')}”`:g.status==='rejected'?`Not used · ${esc(g.error||'')}`:esc(g.status);
+ app.innerHTML=instHeader()+`<main class="dash"><h1>Situations</h1><p class="lead">One per run, at random. Difficulty and timing vary every run.</p>
+ <section class="card generate-card"><div class="card-head"><div><h2>Generate a new situation</h2><p class="card-sub">${creaoState.connected?'New place, incident and detail to correct · checked and added automatically · remove any time':'Not connected. Add CREAO_API_KEY (an app-scoped capi_ key from the agent page) to the .env file in the app folder, then restart the server.'}</p></div><button class="primary big" id="generate" ${!creaoState.connected||pending.length?'disabled':''}>${pending.length?'Generating…':'Generate with CREAO'}</button></div>
+  ${creaoState.pool?`<p class="note pool-status">${creaoState.pool.ready} of ${creaoState.pool.target} CREAO situations ready${creaoState.pool.pending?' · one being written':''}${creaoState.pool.paused?' · '+esc(creaoState.pool.paused):''} · built-ins only when none is fresh for a trainee</p>`:''}
   ${recent.length?`<ol class="gen-list" aria-live="polite">${recent.map(g=>`<li class="gen-${esc(g.status)}"><time>${esc(when(g.created))}</time><span>${genLine(g)}</span></li>`).join('')}</ol>`:''}</section>
  <section class="card"><h2>In rotation · ${inst.situations.length}</h2><ul class="situations">${inst.situations.map(s=>`<li><div class="row"><strong>${esc(s.title)}</strong><span class="chip">${s.builtIn?'Built in':s.generated?'Generated':'Added by you'}</span></div><details><summary>Show the call</summary><p><strong>Really happening:</strong> ${esc(s.truth.location)} · ${esc(s.truth.entrance)}</p><p><strong>Caller first says:</strong> “${esc(s.initialMessage)}”</p><p><strong>Later:</strong> “${esc(s.correctionMessage)}”</p>${s.builtIn?'':`<div class="actions"><button class="secondary" data-remove="${esc(s.id)}" data-title="${esc(s.title)}">Remove from rotation</button></div>`}</details></li>`).join('')}</ul></section>
  <details class="card advanced" id="advanced" ${inst.libraryOpen?'open':''}><summary>Write your own situation (optional)</summary><div class="advanced-body">

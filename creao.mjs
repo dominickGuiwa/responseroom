@@ -21,6 +21,23 @@ export const acceptDebrief = text => {
  if (t.length >= 40 && !t.startsWith('{')) return { draft: t.slice(0, 2000), citations: [...t.matchAll(/#(\d{1,5})/g)].map(m => Number(m[1])).slice(0, 40) };
  return null;
 };
+// Caller agent: a third CREAO agent that answers what the trainee says to the caller, in character. Optional; without
+// it the caller reads back what the trainee sent, as before.
+export function callerConfig(env = process.env) {
+ const appId = env.CREAO_CALLER_APP_ID?.trim(), apiKey = env.CREAO_CALLER_API_KEY?.trim();
+ if (!appId || !apiKey) return null;
+ return { apiKey, appId, base: (env.CREAO_BASE_URL?.trim() || 'https://agent.creao.ai').replace(/\/$/, ''), holdMs: Math.min(60000, Math.max(5000, Number(env.CREAO_CALLER_HOLD_MS) || 20000)) };
+}
+// Caller output: JSON {reply, distress 0–3} or a plain spoken line. Short, one or two sentences; anything longer is cut.
+export const acceptCallerReply = text => {
+ const t = String(text ?? '').trim(); let reply = '', distress = 1;
+ try { const v = JSON.parse(t); if (v && typeof v.reply === 'string') { reply = v.reply; distress = v.distress } } catch {}
+ if (!reply && t && !t.startsWith('{')) reply = t;
+ reply = reply.replace(/^\s*caller\s*:\s*/i, '').replace(/\s+/g, ' ').trim();
+ if (reply.length < 2) return null;
+ const d = Math.round(Number(distress));
+ return { reply: reply.slice(0, 280), distress: Number.isFinite(d) ? Math.max(0, Math.min(3, d)) : 1 };
+};
 const acceptScenario = text => { try { const v = JSON.parse(text); return v?.schema_version ? v : null } catch { return null } };
 export function creaoConfig(env = process.env) {
  const apiKey = env.CREAO_API_KEY?.trim();

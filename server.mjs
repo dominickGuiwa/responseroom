@@ -3,15 +3,37 @@ import {readFileSync,existsSync,writeFileSync} from 'node:fs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {Engine,scenario} from './engine.mjs';
-import {creaoConfig,debriefConfig,acceptDebrief,startRun,pollRun,validateRequest,importScenario} from './creao.mjs';
+import {creaoConfig,debriefConfig,callerConfig,acceptDebrief,acceptCallerReply,startRun,pollRun,validateRequest,importScenario} from './creao.mjs';
 import {noopSentry,sentryFromEnv,routeTemplate} from './sentry.mjs';
 import {SITUATIONS,pickSituation} from './situations.mjs';
-import {observe,outcome,callMetrics,GOALS} from './observations.mjs';
+import {observe,outcome,callMetrics,mentionsAny,GOALS} from './observations.mjs';
 import {applyDifficulty} from './difficulty.mjs';
-import {generateInputs,buildGenerated,tooSimilar,debriefInputs} from './generate.mjs';
+import {audioConfig,createAudio} from './audio.mjs';
+import {generateInputs,buildGenerated,tooSimilar,debriefInputs,callerInputs} from './generate.mjs';
 import {execFileSync} from 'node:child_process';
-export function createServer(engine,instructor,{creao=null,debrief=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,pool={}}={}){
+export function createServer(engine,instructor,{creao=null,debrief=null,caller=null,audio=null,fetchImpl=fetch,sentry=noopSentry,generationPollMs=12000,callerPollMs=2000,pool={}}={}){
 const root=fileURLToPath(new URL('.',import.meta.url));
+// ElevenLabs voice (optional): reads lines already in a call's log and transcribes push-to-talk clips. The key stays here.
+const voice=audio?createAudio(audio,{fetchImpl}):null;
+// Caller agent (optional third CREAO agent). When the trainee talks to the caller, the scripted readback is held for a
+// short while and a run is started with only what the caller knows. A reply that arrives in time, passes the guard and
+// is still wanted replaces the readback; otherwise the readback goes out as before. Nothing here blocks the request.
+const COACHING=/\b(you should|you need to|you must|you have to|make sure (?:you|to)|don['’]t forget|remember to)\b/i;
+const callerGuard=(text,s)=>{const t=String(text||'');if(/https?:\/\//i.test(t)||/\bas an ai\b/i.test(t)||/[\[\]*]/.test(t))return 'off-character';if(COACHING.test(t))return 'coaching';const k=s.scenario?.keywords;if(!s.corrected&&k?.corrected?.length&&mentionsAny(t,k.corrected))return 'names the correction early';return null};
+const callerRuns=new Map(),asked=new Set();
+// Only the message just sent is asked about, once: a replayed request or an older message whose reply was refused never starts another run.
+function askCaller(s){if(!caller)return;const p=s.pending.filter(x=>x.to==='Caller'&&!x.reply).at(-1);if(!p||asked.has(p.id))return;asked.add(p.id);if(asked.size>5000)asked.delete(asked.values().next().value);callerRuns.set(p.id,{started:Date.now()});
+ const tx=sentry.startTransaction('caller reply','ai.agent');const span=tx.startChild('ai.agent.run','CREAO Caller: start run');
+ (async()=>{let run;try{run=await startRun(caller,callerInputs({session:s,events:engine.history(s.id),message:p}),fetchImpl);span.finish()}catch(e){span.finish('internal_error');sentry.captureException(e,{tags:{integration:'creao',stage:'caller-start'}});callerRuns.delete(p.id);return tx.finish('internal_error')}
+  callerRuns.set(p.id,{started:Date.now(),run});
+  const t=setInterval(async()=>{const entry=callerRuns.get(p.id);if(!entry||Date.now()-entry.started>caller.holdMs){clearInterval(t);callerRuns.delete(p.id);tx.setTag('creao.caller','timeout');return tx.finish('deadline_exceeded')}
+   let result;try{result=await pollRun(caller,run,fetchImpl,acceptCallerReply)}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-poll'}});return}
+   if(result.status==='pending')return;clearInterval(t);callerRuns.delete(p.id);
+   if(result.status!=='completed'){tx.setTag('creao.caller','failed');sentry.captureMessage('CREAO caller run failed',{tags:{integration:'creao',reason:result.error}});return tx.finish('internal_error')}
+   const live=engine.get(s.id);const why=live?callerGuard(result.output.reply,live):'ended';
+   if(why){tx.setTag('creao.caller','guarded');sentry.captureMessage('CREAO caller reply not used',{tags:{integration:'creao',reason:why}});return tx.finish('ok')}
+   try{tx.setTag('creao.caller',engine.replyFromAgent(s.id,p.id,result.output)?'replied':'late')}catch(e){sentry.captureException(e,{tags:{integration:'creao',stage:'caller-reply'}})}
+   tx.finish('ok')},callerPollMs);t.unref?.()})()}
 // Browser error forwarding is rate-limited so a broken page cannot flood Sentry.
 let clientErrors={minute:0,count:0};
 const same=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y)};
@@ -74,8 +96,9 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  const tx=traced?sentry.startTransaction(`${req.method} ${route}`,'http.server'):noopSentry.startTransaction();
  res.on('finish',()=>{tx.setTag('http.status_code',res.statusCode);tx.finish(res.statusCode>=500?'internal_error':res.statusCode>=400?'invalid_argument':'ok')});
  try{if(req.method==='POST'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected'});
- if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/insights.js':'insights.js','/streetmap.js':'streetmap.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
- let body={};if(req.method==='POST'){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>20000)return send(413,{error:'Request too large'})}try{body=JSON.parse(raw||'{}')}catch{return send(400,{error:'Request body is not valid JSON'})}}
+ if(!url.pathname.startsWith('/api/')){const file={'/':'index.html','/instructor':'index.html','/app.js':'app.js','/insights.js':'insights.js','/streetmap.js':'streetmap.js','/audio.js':'audio.js','/style.css':'style.css'}[url.pathname];if(!file)return send(404,{error:'Not found'});res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');return res.end(readFileSync(root+'public/'+file))}
+ // Bodies are JSON, except a push-to-talk clip posted to …/speech, which is raw audio (a few hundred KB at most).
+ let body={},clip=null;if(req.method==='POST'){const binary=url.pathname.endsWith('/speech')&&!/json/i.test(req.headers['content-type']||'');const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>(binary?3000000:20000))return send(413,{error:binary?'That clip is too long. Keep it under 45 seconds.':'Request too large'});chunks.push(chunk)}if(binary)clip=Buffer.concat(chunks);else{try{body=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}')}catch{return send(400,{error:'Request body is not valid JSON'})}}}
  if(url.pathname==='/api/client-error'&&req.method==='POST'){const minute=Math.floor(Date.now()/60000);if(clientErrors.minute!==minute)clientErrors={minute,count:0};if(typeof body.message==='string'&&++clientErrors.count<=20)sentry.captureException({name:'BrowserError',message:body.message,stack:typeof body.stack==='string'?body.stack:''},{tags:{source:'browser',page:routeTemplate(String(body.path||''))}});res.writeHead(204);return res.end()}
  if(url.pathname==='/api/scenarios'){
   if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});
@@ -98,9 +121,9 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
    else if(body.action==='poll'||body.action==='recheck'){if(body.action==='recheck'&&!engine.reopenGeneration(String(body.run)))return send(409,{error:'Only rejected runs can be rechecked'});const row=engine.generations().find(g=>g.run===body.run);if(!row)return send(404,{error:'Unknown generation'});if(row.status==='pending')await resolveGeneration(row,tx)}
    else return send(400,{error:'Unknown CREAO action'});
   }else if(req.method!=='GET')return send(405,{error:'Method not allowed'});
-  return send(200,{connected:!!creao,debriefConnected:!!debrief,pool:poolStatus(),generations:engine.generations(),scenarios:engine.scenarios()});
+  return send(200,{connected:!!creao,debriefConnected:!!debrief,callerConnected:!!caller,pool:poolStatus(),generations:engine.generations(),scenarios:engine.scenarios()});
  }
- if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,goals:GOALS,creao:creao?'Key configured':'Not connected',debrief:debrief?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected'});
+ if(url.pathname==='/api/info')return send(200,{title:scenario.title,briefing:scenario.briefing,version:scenario.version,goals:GOALS,creao:creao?'Key configured':'Not connected',debrief:debrief?'Key configured':'Not connected',sentry:sentry.enabled?'Connected':'Not connected',audio:{connected:!!voice,provider:voice?'ElevenLabs':null},caller:{connected:!!caller}});
  if(url.pathname==='/api/sessions'&&req.method==='GET'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,engine.sessionsSummary())}
  // Each new run gets a different situation. CREAO-written and instructor-approved situations come first; built-ins only when none of those is fresh for this trainee.
  if(url.pathname==='/api/sessions'&&req.method==='POST'){const name=typeof body.name==='string'?body.name.trim():'';if(name.length>60)return send(400,{error:'Please use a name of 60 characters or fewer.'});
@@ -113,7 +136,14 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
  if(url.pathname==='/api/situations'){if(!same((req.headers.authorization||'').replace(/^Bearer /,''),instructor))return send(403,{error:'Instructor access required'});return send(200,[...SITUATIONS,...engine.scenarios().filter(x=>x.approved)].map(x=>({id:x.id||null,version:x.version,title:x.title,builtIn:!!x.builtIn,generated:x.source?.kind==='creao',truth:x.truth,initialMessage:x.initialMessage,correctionMessage:x.correctionMessage,correctionAt:x.correctionAt,endAt:x.endAt??null})))}
  const match=url.pathname.match(/^\/api\/sessions\/([\w-]+)(?:\/(\w+))?$/);if(!match)return send(404,{error:'Not found'});let s=engine.get(match[1]);if(!s)return send(404,{error:'Not found'});
  const secret=(req.headers.authorization||'').replace(/^Bearer /,'');const admin=same(secret,instructor);if(!admin&&!same(secret,s.token))return send(403,{error:'Access denied'});
- const route=match[2];if(route&&route!=='review'&&route!=='debrief')return send(404,{error:'Not found'});if(!['GET','POST'].includes(req.method))return send(405,{error:'Method not allowed'});
+ const route=match[2];if(route&&!['review','debrief','audio','speech'].includes(route))return send(404,{error:'Not found'});if(!['GET','POST'].includes(req.method))return send(405,{error:'Method not allowed'});const trainee=same(secret,s.token);
+ // Voice. A line already in this call's log is read by ElevenLabs (never arbitrary text); a push-to-talk clip is transcribed and returned, not logged. Only the trainee can speak; the instructor may listen.
+ if(route==='audio'){if(req.method!=='GET')return send(405,{error:'Method not allowed'});if(!voice)return send(503,{error:'Voice is not connected. Add ELEVENLABS_API_KEY to .env and restart the server.'});const id=url.searchParams.get('event');const line=engine.history(s.id).find(e=>['message','ack'].includes(e.kind)&&e.data?.id===id&&['Caller','Fire','EMS'].includes(e.data.from));if(!line)return send(404,{error:'No such line'});
+  let out;try{out=await voice.synthesize({text:line.data.text,speaker:line.data.from,distress:line.data.distress??(line.data.from==='Caller'?1:0)})}catch(e){if(e.status===502)sentry.captureException(e,{tags:{integration:'elevenlabs',stage:'speak'}});throw e}
+  res.writeHead(200,{'Content-Type':out.type,'Content-Length':out.bytes.length,'Cache-Control':'private, max-age=600'});return res.end(out.bytes)}
+ if(route==='speech'){if(req.method!=='POST')return send(405,{error:'Method not allowed'});if(!trainee)return send(403,{error:'Only the trainee on this call can speak on it'});if(!voice)return send(503,{error:'Voice input is not connected. Add ELEVENLABS_API_KEY to .env and restart the server.'});if(s.status==='ended')return send(409,{error:'Exercise has ended'});
+  const span=tx.startChild('ai.audio.transcribe','ElevenLabs: transcribe clip');let out;try{out=await voice.transcribe({audio:clip,type:req.headers['content-type']});span.finish()}catch(e){span.finish(e.status===502?'internal_error':'invalid_argument');if(e.status===502)sentry.captureException(e,{tags:{integration:'elevenlabs',stage:'transcribe'}});throw e}
+  return send(200,out)}
  if(route==='debrief'){if(!admin)return send(403,{error:'Instructor access required'});
   if(req.method==='POST'){if(s.status!=='ended')return send(409,{error:'End the exercise before drafting feedback'});
    if(body.action==='draft'){if(!debrief)return send(503,{error:'Debrief drafting is not connected. Add CREAO_DEBRIEF_APP_ID and CREAO_DEBRIEF_API_KEY to .env and restart the server.'});if(engine.debriefsFor(s.id).some(d=>d.status==='pending'))return send(409,{error:'A draft is already being written.'});
@@ -125,7 +155,7 @@ const server=http.createServer(async(req,res)=>{res.setHeader('Cache-Control','n
   return send(200,{connected:!!debrief,debriefs:engine.debriefsFor(s.id)})}
  if(route==='review'){if(!admin)return send(403,{error:'Instructor access required'});// Instructors may watch a live run; feedback can only be written once it has ended.
  if(req.method==='POST'){if(s.status!=='ended')return send(409,{error:'End the exercise before review'});s=engine.review(s.id,body)}else if(s.status==='active')s=engine.tick(s);return send(200,{...engine.public(s),scenario:s.scenario,review:s.review,released:s.released,reviews:engine.reviewHistory(s.id),observations:observe(s.scenario,engine.history(s.id))})}
- if(req.method==='POST'){const trainee=same(secret,s.token);if(!trainee&&body.action!=='end')return send(403,{error:'The instructor key can only end an exercise'});s=engine.act(s.id,body.action,body.data||{},body.key,trainee?'trainee':'instructor')}else{s=engine.tick(s)}return send(200,engine.public(s));
+ if(req.method==='POST'){if(!trainee&&body.action!=='end')return send(403,{error:'The instructor key can only end an exercise'});s=engine.act(s.id,body.action,body.data||{},body.key,trainee?'trainee':'instructor',{callerHoldMs:caller?caller.holdMs:null});if(caller&&trainee&&body.action==='send'&&body.data?.to==='Caller')askCaller(s)}else{s=engine.tick(s)}return send(200,engine.public(s));
  }catch(e){
   // Plain Error = an expected validation message for the user. Anything else (TypeError, SQLite, network) is a bug: report it, return a generic 500.
   const expected=e?.status||(e?.constructor===Error&&!e?.code);
@@ -143,7 +173,9 @@ let release='responseroom@dev';try{release='responseroom@'+execFileSync('git',['
 const sentry=sentryFromEnv(process.env,release);
 process.on('uncaughtException',async e=>{sentry.captureException(e,{tags:{source:'process'},level:'fatal'});await sentry.flush();process.exit(1)});
 process.on('unhandledRejection',e=>sentry.captureException(e instanceof Error?e:Error(String(e)),{tags:{source:'process'}}));
-const server=createServer(engine,instructor,{creao:creaoConfig(),debrief:debriefConfig(),sentry});
-server.listen(Number(process.env.PORT||4173),'127.0.0.1',()=>console.log('ResponseRoom: http://127.0.0.1:'+server.address().port+'\nInstructor key stored locally in .instructor-key (never commit).\nSentry: '+(sentry.enabled?'connected ('+release+')':'not connected')));
+const audio=audioConfig();
+const callerAgent=callerConfig();
+const server=createServer(engine,instructor,{creao:creaoConfig(),debrief:debriefConfig(),caller:callerAgent,audio,sentry});
+server.listen(Number(process.env.PORT||4173),'127.0.0.1',()=>console.log('ResponseRoom: http://127.0.0.1:'+server.address().port+'\nInstructor key stored locally in .instructor-key (never commit).\nSentry: '+(sentry.enabled?'connected ('+release+')':'not connected')+'\nVoice: '+(audio?'ElevenLabs':'device voices and typed input (no ELEVENLABS_API_KEY)')+'\nCaller agent: '+(callerAgent?'CREAO':'scripted readback (no CREAO_CALLER_APP_ID / CREAO_CALLER_API_KEY)')));
 
 }
