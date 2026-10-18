@@ -1,0 +1,4 @@
+.instructor-key
+*.sqlite*
+.env
+node_modules/
