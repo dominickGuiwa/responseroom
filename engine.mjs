@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { observe, outcome, callMetrics } from './observations.mjs';
 import { buildMap, sanitizeSpec, mapState } from './public/streetmap.js';
 export const scenario = Object.freeze({version:'cedar-demo-1', title:'Cedar Court',truth:{location:'18 Cedar Court',entrance:'North entrance'},briefing:'You are the dispatcher for a fictional incident. Communicate with the caller, Fire, and EMS. Maintain your own incident record. Messages and record edits are separate actions.'});
+// The caller never reads the trainee's words back (people don't). Without a caller-agent reply they acknowledge briefly and
+// neutrally; the line is picked from the message id so a replay always shows the same one.
+export const CALLER_ACKS = Object.freeze(['Okay.', 'Yes… okay.', 'Alright, I’m still here.', 'Okay, I heard you.', 'Yes. Please hurry.', 'Okay… okay.']);
+const callerAck = id => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return CALLER_ACKS[h % CALLER_ACKS.length] };
 export class Engine {
  constructor(path){this.db=new DatabaseSync(path);this.db.exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS scenarios(id TEXT PRIMARY KEY, data TEXT, approved INTEGER DEFAULT 0, approver TEXT); CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, token TEXT, data TEXT); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,session TEXT, time INTEGER, kind TEXT, data TEXT, request TEXT, UNIQUE(session,request)); CREATE TABLE IF NOT EXISTS requests(session TEXT, request TEXT, payload TEXT, PRIMARY KEY(session,request)); CREATE TABLE IF NOT EXISTS reviews(id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT, version INTEGER, text TEXT, reviewer TEXT, released INTEGER, created INTEGER, UNIQUE(session,version)); CREATE TABLE IF NOT EXISTS audit(time INTEGER,session TEXT,reason TEXT); CREATE TABLE IF NOT EXISTS debriefs(run TEXT PRIMARY KEY, session TEXT, status TEXT, text TEXT, error TEXT, created INTEGER); CREATE TABLE IF NOT EXISTS generations(run TEXT PRIMARY KEY, brief TEXT, status TEXT, scenario TEXT, error TEXT, created INTEGER, import TEXT); CREATE TABLE IF NOT EXISTS voice_cache(key TEXT PRIMARY KEY, type TEXT, bytes BLOB, created INTEGER);`);if(!this.db.prepare('PRAGMA table_info(generations)').all().some(c=>c.name==='import'))this.db.exec('ALTER TABLE generations ADD COLUMN import TEXT');if(!this.db.prepare('PRAGMA table_info(generations)').all().some(c=>c.name==='mode'))this.db.exec('ALTER TABLE generations ADD COLUMN mode TEXT')}
  save(s){this.db.prepare('INSERT OR REPLACE INTO sessions VALUES(?,?,?)').run(s.id,s.token,JSON.stringify(s));return s}
@@ -20,7 +24,7 @@ export class Engine {
    const limit=s.scenario.endAt??null,horizon=limit===null?s.elapsed:Math.min(s.elapsed,limit);
    // Participant replies are readbacks of what the trainee actually sent: an authored template wraps the raw text, never adds facts.
    // A caller-agent reply, when one arrived in time, replaces the readback for that message.
-   const reply=p=>{if(p.reply)return p.reply;const t=s.scenario.replies?.[p.to];return t?t.split('{message}').join(p.text):`Received: “${p.text}”`};
+   const reply=p=>{if(p.reply)return p.reply;if(p.to==='Caller')return callerAck(p.id);const t=s.scenario.replies?.[p.to];return t?t.split('{message}').join(p.text):`Received: “${p.text}”`};
    const due=s.pending.filter(p=>p.due<=horizon).map(p=>({at:p.due,kind:'ack',data:{id:randomUUID(),from:p.to,to:'Dispatcher',text:reply(p),messageId:p.id,contentVersion:p.id,...(p.reply?{agent:true,distress:p.distress??1}:{})}}));
    const lines=[{at:s.scenario.correctionAt??30000,text:s.scenario.correctionMessage||'I need to correct that. I am at the north entrance, not the south entrance.'},...(s.scenario.extraCallerLines||[])];
    let sent=s.callerSent??(s.corrected?1:0);

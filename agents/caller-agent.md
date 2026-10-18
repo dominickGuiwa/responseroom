@@ -2,8 +2,8 @@
 
 A third CREAO agent that plays the caller during a call. ResponseRoom sends it only what the caller knows (the caller's
 own lines so far, the recent conversation and what the trainee just said) and gets back one or two spoken sentences with
-a distress level. The reply replaces the caller's scripted readback when it arrives in time; the distress level also
-drives the caller's ElevenLabs voice. Without this agent the caller reads back what the trainee sent, as before.
+a distress level. The reply replaces the caller's brief scripted acknowledgment when it arrives in time; the distress level also
+drives the caller's ElevenLabs voice. Without this agent the caller only acknowledges briefly (“Okay.”, “Alright, I’m still here.”).
 
 ## Create it on agent.creao.ai
 
@@ -48,10 +48,10 @@ Output JSON only, nothing else:
 ## What ResponseRoom does with the reply
 
 - Accepts `{"reply", "distress"}` or a plain spoken line; cuts the reply at 280 characters; clamps distress to 0–3.
-- Holds the scripted readback for `CREAO_CALLER_HOLD_MS` (default 45 s, 5–60 s) so the reply can take its place; the
-  trainee sees “Caller is answering…” meanwhile. If the run is slower than that, the readback goes out and the late
+- Holds the scripted acknowledgment for `CREAO_CALLER_HOLD_MS` (default 45 s, 5–60 s) so the reply can take its place; the
+  trainee sees “Caller is answering…” meanwhile. If the run is slower than that, a brief acknowledgment goes out and the late
   reply is dropped. Measured on 2026-10-18 through the API Trigger: about 25 s from start to completed.
-- Refuses the reply and falls back to the readback when it coaches the trainee ("you should…"), names the corrected
+- Refuses the reply and falls back to the acknowledgment when it coaches the trainee ("you should…"), names the corrected
   detail before the caller has actually said it, contains links, brackets or asterisks, or arrives after the call ended.
   Refusals are reported to Sentry with the reason.
 - Never sends the agent the hidden truth, the keywords, the units, the record or anything from the instructor side.

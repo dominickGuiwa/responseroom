@@ -4,13 +4,24 @@
 //   POST {base}/v1/text-to-speech/{voice_id}?output_format=…  header xi-api-key, JSON {text, model_id, voice_settings} -> audio bytes
 //   POST {base}/v1/speech-to-text  header xi-api-key, multipart {model_id, file, language_code, …} -> {text, language_code, words}
 import {createHash} from 'node:crypto';
-// Premade library voices. Override per role with ELEVENLABS_VOICE_CALLER / _FIRE / _EMS (any voice id on the account).
-export const DEFAULT_VOICES=Object.freeze({Caller:'EXAVITQu4vr4xnSDxMaL',Fire:'nPczCjzI2devNBz1zQrb',EMS:'Xb7hH8MSUJpSbSDYk0k2',Dispatcher:'XrExE9yKIg1WjnnlVkGX'});
+// Premade library voices, in pools: every call draws a different caller, engine crew and medic from these (checked against
+// the account on 2026-10-18). ELEVENLABS_VOICES_<ROLE>=id,id,… replaces a pool; ELEVENLABS_VOICE_<ROLE>=id pins one voice.
+export const DEFAULT_POOLS=Object.freeze({
+ Caller:['EXAVITQu4vr4xnSDxMaL','FGY2WhTYpPnrIDTdsKH5','cgSgspJ2msm6clMCkdW9','hpp4J3VqNfWAUOO0d1Us','pFZP5JQG7iQjIQuC4Bku','bIHbv24MWmeRgasZH58o','cjVigY5qzO86Huf0OWal','iP95p4xoKVk53GoZ742B','TX3LPaxmHKxFdv7VOQHJ','SAz9YHcvj6GT2YYXdXww'],
+ Fire:['nPczCjzI2devNBz1zQrb','JBFqnCBsd6RMkjVDRZzb','onwK4e9ZLuTAKqWW03F9','pqHfZKP75CvOlQylNhV4','CwhRBWXzGAHq8TQ4Fs17'],
+ EMS:['Xb7hH8MSUJpSbSDYk0k2','XrExE9yKIg1WjnnlVkGX','IKne3meq5aSn9XLyUdCD','pNInz6obpgDQGcFmaJgB'],
+ Dispatcher:['XrExE9yKIg1WjnnlVkGX'],
+});
+export const DEFAULT_VOICES=Object.freeze(Object.fromEntries(Object.entries(DEFAULT_POOLS).map(([k,v])=>[k,v[0]])));
+const idList=s=>String(s||'').split(',').map(x=>x.trim()).filter(x=>/^[A-Za-z0-9]{10,40}$/.test(x));
+// Which voice speaks for a role on a given call: the pinned one if set, otherwise a stable pick from the pool by seed.
+export function voiceFor(config,speaker,seed=''){const pinned=config.voices?.[speaker];if(pinned)return pinned;const pool=config.pools?.[speaker]||[];if(!pool.length)return null;let h=0;for(const c of String(seed))h=(h*31+c.charCodeAt(0))>>>0;return pool[h%pool.length]}
 export function audioConfig(env=process.env){
  const apiKey=env.ELEVENLABS_API_KEY?.trim();if(!apiKey)return null;
  const pick=(k,d)=>env[k]?.trim()||d;
  return {apiKey,base:pick('ELEVENLABS_BASE_URL','https://api.elevenlabs.io').replace(/\/$/,''),ttsModel:pick('ELEVENLABS_TTS_MODEL','eleven_flash_v2_5'),sttModel:pick('ELEVENLABS_STT_MODEL','scribe_v1'),
-  voices:{Caller:pick('ELEVENLABS_VOICE_CALLER',DEFAULT_VOICES.Caller),Fire:pick('ELEVENLABS_VOICE_FIRE',DEFAULT_VOICES.Fire),EMS:pick('ELEVENLABS_VOICE_EMS',DEFAULT_VOICES.EMS),Dispatcher:pick('ELEVENLABS_VOICE_DISPATCHER',DEFAULT_VOICES.Dispatcher)},
+  voices:{Caller:pick('ELEVENLABS_VOICE_CALLER',null),Fire:pick('ELEVENLABS_VOICE_FIRE',null),EMS:pick('ELEVENLABS_VOICE_EMS',null),Dispatcher:pick('ELEVENLABS_VOICE_DISPATCHER',null)},
+  pools:Object.fromEntries(Object.entries(DEFAULT_POOLS).map(([role,ids])=>{const own=idList(env['ELEVENLABS_VOICES_'+role.toUpperCase()]);return [role,own.length?own:ids]})),
   dailyChars:Math.max(1000,Number(env.ELEVENLABS_DAILY_CHARS)||40000)};
 }
 // Units sound like a steady radio operator. The caller is less stable and more expressive as distress rises (0 calm … 3 frantic).
@@ -34,9 +45,9 @@ export function createAudio(config,{fetchImpl=fetch,now=Date.now,store=null}={})
  return {
   config,
   get usage(){today();return {chars:spend.chars,cap:config.dailyChars,cached:cache.size}},
-  async synthesize({text,speaker,distress=1}){
+  async synthesize({text,speaker,distress=1,seed=''}){
    const line=String(text??'').replace(/\s+/g,' ').trim().slice(0,600);if(!line)throw fail(400,'Nothing to read');
-   const voice=config.voices[speaker];if(!voice)throw fail(400,'Unknown speaker');
+   const voice=voiceFor(config,speaker,seed);if(!voice)throw fail(400,'Unknown speaker');
    const settings=voiceSettings(speaker,distress);
    const key=createHash('sha256').update([voice,config.ttsModel,JSON.stringify(settings),line].join('\n')).digest('hex');
    const hit=cache.get(key);if(hit){cache.delete(key);cache.set(key,hit);return hit}

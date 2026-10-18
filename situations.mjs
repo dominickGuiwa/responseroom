@@ -11,7 +11,7 @@ const procedures = 'None supplied. Built-in fictional demo situation; not a vali
 const briefing = 'A caller is on the line. Keep your own incident record and message the caller, Fire or EMS when you decide to.';
 const crew = (engine, medic) => ({
  units: { Fire: engine, EMS: medic },
- replies: { Fire: `${engine} copies: “{message}”`, EMS: `${medic} copies: “{message}”`, Caller: 'Okay. You said: “{message}”' },
+ replies: { Fire: `${engine} copies: “{message}”`, EMS: `${medic} copies: “{message}”` },
 });
 
 export const SITUATIONS = Object.freeze([
