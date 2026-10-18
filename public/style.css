@@ -555,3 +555,14 @@ details.ai-card[open]>summary{margin-bottom:8px}
 .hear{min-height:44px}
 @media (max-width:600px){.brand .mark{width:26px;height:26px}.topbar:has(.call-meta) .brand{display:inline-flex}.topbar:has(.call-meta) .brand span{display:none}}
 @media (max-width:600px){.results-actions button{white-space:nowrap;padding:12px 14px;font-size:18px;min-height:56px}.results-actions .primary{flex:1.5}.nextbar button{white-space:nowrap;padding:12px 14px}}
+
+/* Backdrop: two soft cyan washes and the line-art backdrop (globe, headset, broadcast arcs), fixed behind every page.
+   The body background propagates to the canvas, so these negative-z layers sit above it and below all content. */
+:root{--wash:#D6E8F3;--wash-2:#E2EFF4}
+body{position:relative}
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;background:radial-gradient(900px 560px at 88% -10%,var(--wash) 0%,rgba(225,238,246,0) 64%),radial-gradient(760px 460px at -8% 106%,var(--wash-2) 0%,rgba(232,242,246,0) 62%)}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:url('/backdrop.svg') center/cover no-repeat}
+@media (max-width:600px){body::after{opacity:.7}}
+@media print{body::before,body::after{display:none}}
+/* :root paints the paper; the body must stay transparent or it would cover the backdrop layers. */
+body{background:transparent}
